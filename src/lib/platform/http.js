@@ -49,10 +49,21 @@ export async function silentRefresh() {
 
 // Error shaped like the rest of the app (e.status), plus the platform's machine-readable
 // code when it gives one (e.g. EMAIL_REVERIFY_REQUIRED).
+// The platform's error envelope nests both: { success:false, error:{ code, message } }.
+// Read flat, the message would be the string "[object Object]" and the code would be
+// lost — which would also hide the EMAIL_REVERIFY_REQUIRED pause. Flat bodies are
+// still accepted (some older routes answer that way).
 function platformError(r, data) {
-  const e = new Error((data && (data.error || data.message)) || 'HTTP ' + r.status)
+  const env = data && typeof data === 'object' ? data : {}
+  const inner = env.error && typeof env.error === 'object' ? env.error : null
+  const message = (inner && typeof inner.message === 'string' && inner.message) ||
+    (typeof env.error === 'string' && env.error) ||
+    (typeof env.message === 'string' && env.message) ||
+    'HTTP ' + r.status
+  const e = new Error(message)
   e.status = r.status
-  e.code = (data && data.code) || ''
+  e.code = (inner && typeof inner.code === 'string' && inner.code) ||
+    (typeof env.code === 'string' ? env.code : '')
   return e
 }
 

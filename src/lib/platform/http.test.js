@@ -30,6 +30,49 @@ afterEach(() => {
   clearAccessToken()
 })
 
+describe('phttp — error envelope', () => {
+  // The platform answers errors as { success:false, error:{ code, message } }.
+  // The message and the machine code both live INSIDE that nested object: read flat,
+  // the UI shows "[object Object]" and never sees EMAIL_REVERIFY_REQUIRED.
+  it('extracts message and code from the nested error envelope', async () => {
+    // 401 first (as the platform answers an expired session), then the refresh
+    // attempt fails with the same nested envelope — that is the error the user sees.
+    const m = mockFetch([
+      res(401, { success: false, error: { code: 'UNAUTHORIZED', message: 'Sesión no reconocida.' } }),
+      res(401, { success: false, error: { code: 'UNAUTHORIZED', message: 'Sesión no reconocida.' } }),
+    ])
+    vi.stubGlobal('fetch', m.impl)
+    const err = await phttp('/auth/login', { method: 'POST', body: '{}' }).catch(e => e)
+    expect(err.message).toBe('Sesión no reconocida.')
+    expect(err.code).toBe('UNAUTHORIZED')
+    expect(err.status).toBe(401)
+  })
+
+  it('keeps EMAIL_REVERIFY_REQUIRED visible for the registration pause', async () => {
+    const m = mockFetch([res(409, { success: false, error: { code: 'EMAIL_REVERIFY_REQUIRED', message: 'Re-verifica tu correo.' } })])
+    vi.stubGlobal('fetch', m.impl)
+    const err = await phttp('/auth/register', { method: 'POST', body: '{}' }).catch(e => e)
+    expect(err.code).toBe('EMAIL_REVERIFY_REQUIRED')
+    expect(err.message).toBe('Re-verifica tu correo.')
+  })
+
+  it('still accepts a flat error body', async () => {
+    const m = mockFetch([res(409, { error: 'Email exists', code: 'EMAIL_TAKEN' })])
+    vi.stubGlobal('fetch', m.impl)
+    const err = await phttp('/auth/register', { method: 'POST', body: '{}' }).catch(e => e)
+    expect(err.message).toBe('Email exists')
+    expect(err.code).toBe('EMAIL_TAKEN')
+  })
+
+  it('never leaks an object into the error message', async () => {
+    const m = mockFetch([res(500, { success: false, error: { code: 'SERVER_ERROR', message: 'Algo falló.' } })])
+    vi.stubGlobal('fetch', m.impl)
+    const err = await phttp('/opengym/ai', { method: 'POST', body: '{}' }).catch(e => e)
+    expect(err.message).not.toContain('[object')
+    expect(err.message).toBe('Algo falló.')
+  })
+})
+
 describe('phttp — success envelope unwrap', () => {
   // The platform wraps nearly every JSON answer in { success: true, data: { ... } }
   // (see leydatos/js/http.js — the same transport convention). Callers receive the
