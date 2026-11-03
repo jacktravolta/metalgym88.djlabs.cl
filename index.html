@@ -16,6 +16,10 @@
 </head>
 <body>
 <div id="root"></div>
+<!-- djlabs bridge deploy knob: the platform install this deployed PWA talks to.
+     Empty string falls back to the library default (https://api.djlabs.cl).
+     Deploy instructions: deploy-config/DEPLOY.md -->
+<script>window.__API_BASE__ = '';</script>
 <script type="module" src="/src/main.jsx"></script>
 </body>
 </html>
