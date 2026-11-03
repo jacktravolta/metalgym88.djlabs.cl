@@ -1,6 +1,8 @@
 import { create } from 'zustand'
-import { api } from '../lib/api.js'
 import { me as platformMe, logout as platformLogout, onAuthExpired } from '../lib/platform/auth.js'
+import { withHeart, withHeartQuery } from '../lib/platform/config.js'
+import { phttp } from '../lib/platform/http.js'
+import { decideSync, SYNC_DATA_PATH, hasData } from './sync.js'
 import { localTZ } from '../lib/format.js'
 import { registerCustom } from '../lib/exercises.js'
 import { DEMO, DEMO_SEEDED } from '../lib/demo.js'
@@ -27,8 +29,6 @@ function loadState() {
   } catch (e) { /* ignore */ }
   return clone(DEF)
 }
-
-const hasData = st => !!((st.workouts || []).length || (st.routines || []).length || (st.bodyweight || []).length)
 
 export const useStore = create((set, get) => {
   let pushTm = null
@@ -108,24 +108,49 @@ export const useStore = create((set, get) => {
       set({ user: u })
     },
 
+    // Mirror the state into the platform document store (PUT /opengym/data — backend
+    // module ships in T6). localStorage stays the source of truth; this is a copy.
     async pushState() {
       if (!get().user) return
       clearTimeout(pushTm)
-      try { await api('/api/data', { method: 'PUT', body: JSON.stringify({ state: get().S }) }); localStorage.removeItem('gym_dirty') }
-      catch (e) { localStorage.setItem('gym_dirty', '1') }
+      try {
+        await phttp(SYNC_DATA_PATH, { method: 'PUT', body: JSON.stringify(withHeart({ state: { ...get().S } })) })
+        localStorage.removeItem('gym_dirty')
+      } catch (e) {
+        // Silent on purpose, deliberately pre-T6 inclusive: until the owner applies the
+        // backend module (T6), /opengym/data legitimately answers 404/501 on the live
+        // platform, and offline there is nothing to sync against at all (offline-first =
+        // full app minus AI). Neither state is an error for the user: the local copy is
+        // kept as-is, the dirty flag survives so the next successful push reconciles the
+        // mirror, and this function never throws. A 401 that survives the refresh attempt
+        // has already flipped the session via onAuthExpired — again without touching the
+        // data. Nothing is logged here (the body would carry legal/personal content).
+        localStorage.setItem('gym_dirty', '1')
+      }
     },
     async pullState() {
       try {
-        const { state } = await api('/api/data')
-        const S = get().S
-        const dirty = localStorage.getItem('gym_dirty') === '1'
-        if (state && (!hasData(S) || ((state._ts || 0) >= (S._ts || 0) && !dirty))) {
-          const active = S.active
+        const data = await phttp(withHeartQuery(SYNC_DATA_PATH), {})
+        // Decision lifted into the pure decideSync helper (sync.js) so the merge
+        // semantics are unit-testable: _ts last-write-wins, empty-local adopt, dirty
+        // override. It also unwraps the blob envelope — `{ state: <blob> }` or the bare
+        // blob at top level are both accepted.
+        const { action, state } = decideSync(get().S, data, localStorage.getItem('gym_dirty') === '1')
+        if (action === 'adopt') {
+          // An active workout on this device outranks whatever the mirror says — same
+          // rule the mobile mirror merge uses.
+          const active = get().S.active
           const next = Object.assign(clone(DEF), state)
           if (active) next.active = active
-          persist(next, false)
-        } else if (hasData(S)) { await get().pushState() }
-      } catch (e) { /* offline — keep local */ }
+          persist(next, false)   // push=false: a pull-merge must never schedule a PUT itself
+        } else if (action === 'push') {
+          await get().pushState()
+        }
+      } catch (e) {
+        // Same contract as pushState's catch: 404/501 (module not applied yet) and offline
+        // are expected, not errors — keep the local copy, keep gym_dirty, keep the app
+        // usable; a dead session is already handled by the onAuthExpired listener.
+      }
     },
 
     async signOut() {
@@ -178,9 +203,9 @@ export const useStore = create((set, get) => {
         set({ ready: true })
         return
       }
-      // Platform auth: the refresh cookie decides who we are. On success, pull the state blob
-      // (legacy /api/data for now — T3 repoints sync) exactly as before; a 401 means the
-      // refresh cookie is gone, so it's a plain signed-out device.
+      // Platform auth: the refresh cookie decides who we are. On success, pull the state
+      // blob from the platform document store (GET /opengym/data) exactly as before; a
+      // 401 means the refresh cookie is gone, so it's a plain signed-out device.
       try {
         const { user, balance } = await platformMe()
         get().setUser(user)
