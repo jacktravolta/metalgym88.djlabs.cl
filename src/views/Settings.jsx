@@ -12,6 +12,7 @@ import { t, LANGS, INSTR_LANGS } from '../lib/i18n.js'
 import { DEMO, REPO } from '../lib/demo.js'
 import { MOBILE, shareExport, syncReminder } from '../lib/mobile.js'
 import { openWallet } from '../components/Wallet.jsx'
+import { AssistantRow } from '../components/Assistant.jsx'
 import { loadStarterPlan, confirmSheet, importFromApp } from '../sheets.jsx'
 import Icon from '../components/Icon.jsx'
 import { Section, Row, SelectRow, Switch, Segmented, Button, TextField } from '../components/ui.jsx'
@@ -91,6 +92,8 @@ export default function Settings() {
         <Row icon="wallet" iconTint="var(--acc)" title={t('Wallet')}
           subtitle={balance != null ? t('{0} credits available', fmtNum(balance)) : t('AI credits and top-ups')}
           accessory="chevron" onClick={openWallet} />
+        {/* The paid feature itself; renders itself disabled with an honest line when offline. */}
+        <AssistantRow />
         {user.admin && <Row icon="wrench" iconTint="var(--indigo)" title={t('Admin dashboard')} accessory="chevron" onClick={() => nav('/admin')} />}
         <Row icon="signOut" iconTint="var(--red)" title={t('Sign out')} danger onClick={() => confirmSheet({ title: t('Sign out?'), message: t('Your data is synced to your profile first, then cleared from this device.'), confirmText: t('Sign out'), danger: true, onConfirm: () => { signOut(); nav('/home') } })} />
         <Row icon="shield" iconTint="var(--red)" title={t('Sign out everywhere')} subtitle={t('Ends this session, including on this device. Your account and data are kept.')} danger onClick={signOutEverywhere} />

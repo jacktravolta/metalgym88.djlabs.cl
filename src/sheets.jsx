@@ -20,6 +20,8 @@ import { buildPlanBundle, parsePlan, mergePlan, printPlan } from './lib/plan-sha
 import { estimate1RM, best1RM, is1RMRecord, REP_CAP } from './lib/onerm.js'
 import { nextPrescription, applyPrescription, policyFor, defaultIncrement, POLICIES_FOR, POLICY_NAME, POLICY_DESC, MAX_BW_SETS } from './lib/progression.js'
 import { MOBILE, shareExport } from './lib/mobile.js'
+import { DEMO } from './lib/demo.js'
+import { openAssistant } from './components/Assistant.jsx'
 
 const S = () => useStore.getState().S
 const update = (...a) => useStore.getState().update(...a)
@@ -904,6 +906,7 @@ export const workoutCompleteSheet = () => ui().openSheet(close => <WorkoutComple
 
 function FinishSummary({ w, prs, e1prs = [], close }) {
   const st = useStore(s => s.S)
+  const user = useStore(s => s.user)
   return <div style={{ textAlign: 'center', padding: '8px 0' }}>
     <div style={{ fontSize: 44, display: 'flex', justifyContent: 'center', color: 'var(--acc)' }}><Icon name="trophy" /></div>
     <h3 style={{ margin: '8px 0' }}>{t('Workout complete!')}</h3>
@@ -921,6 +924,13 @@ function FinishSummary({ w, prs, e1prs = [], close }) {
     <BodyMap load={loadOfWorkouts([w])} body={st.body} />
     <div style={{ height: 14 }} />
     <Button variant="primary" onClick={() => { close(); nav('/home') }}>{t('Nice!')}</Button>
+    {/* The one low-key assistant entry in the main flow: a finished workout is the moment
+        "how did that go?" asks itself. Signed-in platform builds only — the hook inside
+        openAssistant() would no-op for guests/demo/mobile anyway, so don't offer it. */}
+    {(user && !DEMO && !MOBILE) && <>
+      <div style={{ height: 8 }} />
+      <Button variant="ghost" className="dim" onClick={() => { close(); openAssistant() }}>{t('Ask the AI coach about this session')}</Button>
+    </>}
   </div>
 }
 export function finishWorkout() {
