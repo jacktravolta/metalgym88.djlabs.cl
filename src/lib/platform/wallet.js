@@ -222,7 +222,16 @@ export function statusKind(status) {
 // Reads the breadcrumb, asks the platform how that order ended, and — only when it
 // got an answer — consumes the record so the same result never speaks twice. A failed
 // lookup keeps the record: it will be tried again on the next boot until the TTL ends it.
-export async function checkReturnedTopUp() {
+// Concurrent callers (boot check + wallet open) share ONE in-flight request: the record
+// is consumed once, so the result can never be announced twice.
+let returnedInflight = null
+export function checkReturnedTopUp() {
+  if (returnedInflight) return returnedInflight
+  returnedInflight = checkReturnedTopUpOnce().finally(() => { returnedInflight = null })
+  return returnedInflight
+}
+
+async function checkReturnedTopUpOnce() {
   const rec = readTopupRecord()
   if (!rec) return null
   let v

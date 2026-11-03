@@ -52,7 +52,7 @@ function TopUpStatusSheet({ result, close }) {
     </div>
     <h3 style={{ margin: '8px 0 4px' }}>{copy[0]}</h3>
     <div className="muted small" style={{ marginBottom: 16, lineHeight: 1.5 }}>{copy[1]}</div>
-    <Button variant="primary" onClick={close}>{t('See my wallet')}</Button>
+    <Button variant="primary" onClick={() => { close(); openWallet() }}>{t('See my wallet')}</Button>
     <div style={{ height: 8 }} />
     <Button variant="ghost" className="dim" onClick={close}>{t('Close')}</Button>
   </div>
