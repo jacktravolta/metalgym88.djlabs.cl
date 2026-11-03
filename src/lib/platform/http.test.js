@@ -92,4 +92,15 @@ describe('phttp — transport', () => {
     expect(err.status).toBe(409)
     expect(err.code).toBe('EMAIL_TAKEN')
   })
+
+  it('merges caller headers alongside Content-Type and Authorization', async () => {
+    const m = mockFetch([res(200, { ok: 1 })])
+    vi.stubGlobal('fetch', m.impl)
+    setAccessToken('tok1')
+    await phttp('/payments/orders', { method: 'POST', headers: { 'Idempotency-Key': 'k-1' }, body: '{}' })
+    const h = m.seen[0].opts.headers
+    expect(h['Idempotency-Key']).toBe('k-1')
+    expect(h['Content-Type']).toBe('application/json')
+    expect(h.Authorization).toBe('Bearer tok1')
+  })
 })

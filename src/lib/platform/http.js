@@ -62,9 +62,14 @@ export async function phttp(path, opts = {}) {
     credentials: 'include',
     headers: Object.assign(
       { 'Content-Type': 'application/json' },
-      token ? { Authorization: 'Bearer ' + token } : {}
+      token ? { Authorization: 'Bearer ' + token } : {},
+      // Caller headers (e.g. the payments Idempotency-Key) ride ALONGSIDE the base
+      // ones — replacing wholesale would silently drop the auth token.
+      opts.headers || {}
     )
-  }, opts))
+    // NOTE: spread the caller's opts MINUS headers (already merged above), so this
+    // outer Object.assign cannot overwrite the merged header set.
+  }, (({ headers, ...rest }) => rest)(opts)))
 
   let r = await call(accessToken)
   if (r.status === 401 && !NO_REFRESH.includes(path.split('?')[0])) {
