@@ -79,5 +79,10 @@ export async function phttp(path, opts = {}) {
   }
   const data = await r.json().catch(() => ({}))
   if (!r.ok) throw platformError(r, data)
+  // Platform convention: almost every JSON answer is wrapped in a success envelope
+  // ({ success: true, data: { ... } }) — callers receive the INNER payload, exactly
+  // like the other djlabs fronts. The gym module routes answer without an envelope
+  // ({ state: ... } top-level), so unwrap only when the envelope shape is present.
+  if (data && data.success === true && 'data' in data) return data.data
   return data
 }

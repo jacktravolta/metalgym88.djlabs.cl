@@ -30,6 +30,39 @@ afterEach(() => {
   clearAccessToken()
 })
 
+describe('phttp — success envelope unwrap', () => {
+  // The platform wraps nearly every JSON answer in { success: true, data: { ... } }
+  // (see leydatos/js/http.js — the same transport convention). Callers receive the
+  // INNER payload; module answers without the envelope pass through unchanged.
+  it('unwraps the { success, data } envelope on 2xx', async () => {
+    const m = mockFetch([res(200, { success: true, data: { user: { id: 'u1' }, balance: 300 } })])
+    vi.stubGlobal('fetch', m.impl)
+    const out = await phttp('/auth/login', { method: 'POST', body: '{}' })
+    expect(out).toEqual({ user: { id: 'u1' }, balance: 300 })
+  })
+
+  it('keeps module-shaped answers (no envelope) untouched', async () => {
+    const m = mockFetch([res(200, { state: { foo: 1 } }), res(200, { ok: true, answer: 'x' })])
+    vi.stubGlobal('fetch', m.impl)
+    expect(await phttp('/opengym/data')).toEqual({ state: { foo: 1 } })
+    expect(await phttp('/opengym/assistant', { method: 'POST', body: '{}' })).toEqual({ ok: true, answer: 'x' })
+  })
+
+  it('never unwraps error bodies — they keep their shape', async () => {
+    const m = mockFetch([res(409, { success: false, data: { error: 'no' }, error: 'Email exists', code: 'X' })])
+    vi.stubGlobal('fetch', m.impl)
+    const err = await phttp('/auth/register', { method: 'POST', body: '{}' }).catch(e => e)
+    expect(err.message).toBe('Email exists')
+    expect(err.code).toBe('X')
+  })
+
+  it('unwraps envelope payloads that are arrays', async () => {
+    const m = mockFetch([res(200, { success: true, data: [{ code: 'gym_ai_chat', credits: 5 }] })])
+    vi.stubGlobal('fetch', m.impl)
+    expect(await phttp('/tariffs')).toEqual([{ code: 'gym_ai_chat', credits: 5 }])
+  })
+})
+
 describe('phttp — transport', () => {
   it('sends credentials and hits the platform base URL', async () => {
     const m = mockFetch([res(200, { ok: 1 })])
