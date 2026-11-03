@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { api } from '../lib/api.js'
+import { me as platformMe, logout as platformLogout, onAuthExpired } from '../lib/platform/auth.js'
 import { localTZ } from '../lib/format.js'
 import { registerCustom } from '../lib/exercises.js'
 import { DEMO, DEMO_SEEDED } from '../lib/demo.js'
@@ -79,9 +80,15 @@ export const useStore = create((set, get) => {
     persist(clone(DEF), false)
   }
 
+  // If the platform's silent refresh hits a dead refresh cookie mid-session, the session is
+  // over on this device — flip to the signed-out state so the gate UI shows again. Guest and
+  // demo builds never call the platform, so the listener stays dormant there.
+  onAuthExpired(() => { get().setUser(null); set({ balance: null }) })
+
   return {
     S: (() => { const s = loadState(); registerCustom(s.customEx); return s })(),
     user: (() => { try { return JSON.parse(localStorage.getItem('gym_user')) || null } catch { return null } })(),
+    balance: null,   // platform credits — refreshed at boot and on every credit-bearing call
     ready: false,
 
     // Mutate a draft of S via producer fn, then persist + schedule sync.
@@ -122,18 +129,17 @@ export const useStore = create((set, get) => {
     },
 
     async signOut() {
-      try { await get().pushState(); await api('/api/logout', { method: 'POST', body: '{}' }) } catch (e) { /* */ }
+      try { await get().pushState(); await platformLogout() } catch (e) { /* */ }
       clearLocalSession()
     },
 
-    // "Sign out everywhere": the server bumps this profile's session version, which kills every
-    // session it has on any device — this browser included, so the app has to end up exactly
-    // where a normal signOut leaves it. Unlike signOut the request is NOT swallowed: if it fails
-    // the sessions elsewhere are all still valid, and wiping this device's copy of the data
-    // would sign the user out of the one place the bump didn't reach. Caller reports the error.
+    // "Sign out everywhere": the legacy self-hosted server had a session-version bump that
+    // reached every device. The platform exposes a single logout that ends the session at
+    // hand, so this is the same call — still NOT swallowed: if it fails, wiping this device's
+    // copy would look signed-out while the session is actually still alive elsewhere.
     async signOutAll() {
       await get().pushState()   // never throws — stores gym_dirty and moves on when offline
-      await api('/api/logout/all', { method: 'POST', body: '{}' })
+      await platformLogout()
       clearLocalSession()
     },
 
@@ -172,9 +178,13 @@ export const useStore = create((set, get) => {
         set({ ready: true })
         return
       }
+      // Platform auth: the refresh cookie decides who we are. On success, pull the state blob
+      // (legacy /api/data for now — T3 repoints sync) exactly as before; a 401 means the
+      // refresh cookie is gone, so it's a plain signed-out device.
       try {
-        const me = await api('/api/me')
-        get().setUser(me.user)
+        const { user, balance } = await platformMe()
+        get().setUser(user)
+        set({ balance: balance ?? null })
         await get().pullState()
         // Re-stamp the reminder's timezone on every load — keeps it correct if you're travelling,
         // without needing to revisit Settings.
@@ -183,7 +193,7 @@ export const useStore = create((set, get) => {
           get().update(s => { s.reminder = { ...s.reminder, tz } })
         }
       } catch (e) {
-        if (e.status === 401) get().setUser(null)
+        if (e.status === 401) { get().setUser(null); set({ balance: null }) }
       }
       set({ ready: true })
     }
