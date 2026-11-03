@@ -6,6 +6,12 @@ export const EXIDX = {}
 EXDB.forEach(e => { EXIDX[e.id] = e })
 export const BODYPARTS = [...new Set(EXDB.map(e => e.bp))].sort()
 
+// The readable name of an exercise, by id. The exercise dictionary lives ONLY in
+// the client, so anything that leaves the device (the synced document, the AI
+// assistant's context) must carry the name itself — an id alone means nothing to
+// a reader that has never seen the catalogue.
+export const exName = id => (EXIDX[id] && EXIDX[id].n) || String(id || '')
+
 // Equipment options present in a given list of exercises, most common first (issue #6).
 // Deriving them from the *already filtered* list keeps the chip row short and means
 // every body-part × equipment combination on screen has results behind it.
