@@ -46,3 +46,36 @@ store; **no schema**, owner decision).
    wallets per heart in production ONLY via the install's `HEART_ID` — deploying
    metalgym88 therefore requires its own install (or the platform's multi-heart prod
    work) with the gym heart id. Documented in INSTALL.md; out of this module's scope.
+
+## POST /opengym/ai
+
+| Aspect | Value |
+| --- | --- |
+| Auth | Session required (`AuthMiddleware::requireUser`) |
+| Body | `{"question": "<text>", "conversation_id?": "<id>", "heart": "metalgym88"}` — question 1..4000 chars (`opengym.max_question_chars`) |
+| Heart | Same dev/prod convention as the data routes; the gym heart owns the wallet that pays (`heartIdFor`) |
+| Rate limit | Platform `chat_user` scope, bucket `opengym_ai:user:<user_id>` (admin-editable, no new platform scope) |
+| Gates, in order | validation (400) → `opengym.ai_enabled` + `gym_ai_chat` tariff (501) → rate limit (429) → balance (402) → brain (502) → **debit last** |
+| Success 200 | `{"answer", "conversation_id", "balance", "operation_id"}` — **flat top level**, exactly the envelope the front's `resolveEnvelope` reads; `balance` is re-read after the debit |
+| Charging | Only after a successful brain answer; idempotent by `operation_id` — convention `gym_ai:<uuid>`, same as chat's `chat:<uuid>` (retries never double-charge) |
+| 402 | `INSUFFICIENT_CREDITS` — empathetic message (balance, needed, missing; "recargar cuando quieras") — the front classifies it and stacks the wallet on top of the panel |
+| 501 | `NOT_CONFIGURED` — tariff missing or AI disabled → the front's gentle "assistant not available yet" state |
+| 502 | `BRAIN_UNAVAILABLE` — brain failover exhausted; **no charge, no ledger row** ("No se te cobró nada por este intento") |
+| Privacy | Question/answer content NEVER logged; only user_id, op ids, lengths, cost. The document's data is injected as context only after prompt-injection hardening (data, not instructions) |
+
+### AI cross-check findings (front assistant.js ↔ backend)
+
+1. Front `classify()` maps 402 or `INSUFFICIENT*` codes → `insufficient_credits`
+   → openWallet: the 402 + `INSUFFICIENT_CREDITS` code matches. ✓
+2. Front maps 404/501/network → `not_available` ("assistant not available
+   yet"): our 501 NOT_CONFIGURED lands exactly there — the packaged-not-applied
+   pre-apply state needs no separate handling. ✓
+3. Front maps 401 → `auth` (silent refresh first): our mapper answers 401
+   UNAUTHORIZED before any other kind — T6a's mapping gap (401 → 500) is fixed
+   in the shared module mapper. ✓
+4. 502 lands on the front's generic `error` outcome; the response carries the
+   platform's empathetic no-charge copy. Optional improvement (front): map
+   `BRAIN_UNAVAILABLE` explicitly to its own softer state — not required.
+5. `conversation_id` is echoed when well-formed, else equals `operation_id`;
+   the transcript itself lives client-side (no gym conversation tables — owner
+   decision). The front keeps the transcript in component state. ✓
