@@ -59,7 +59,7 @@ export default function Settings() {
     message: t('Signs this session out, including on this device. Your account and data are kept — sign in again anytime.'),
     confirmText: t('Sign out everywhere'), danger: true,
     onConfirm: async () => {
-      try { await signOutAll(); nav('/home'); toast(t('Signed out on all devices')) }
+      try { await signOutAll(); nav('/home'); toast(t('Signed out. Sign in again anytime.')) }
       catch (e) { toast(t('Could not sign out everywhere — you are still signed in.')) }
     },
   })
@@ -86,7 +86,7 @@ export default function Settings() {
         <Row icon="personCircle" iconTint="var(--grey)" title={user.name || user.email} subtitle={t('Signed in — your data syncs to this profile.')} />
         {user.admin && <Row icon="wrench" iconTint="var(--indigo)" title={t('Admin dashboard')} accessory="chevron" onClick={() => nav('/admin')} />}
         <Row icon="signOut" iconTint="var(--red)" title={t('Sign out')} danger onClick={() => confirmSheet({ title: t('Sign out?'), message: t('Your data is synced to your profile first, then cleared from this device.'), confirmText: t('Sign out'), danger: true, onConfirm: () => { signOut(); nav('/home') } })} />
-        <Row icon="shield" iconTint="var(--red)" title={t('Sign out everywhere')} subtitle={t('Ends this profile’s sessions on all your devices.')} danger onClick={signOutEverywhere} />
+        <Row icon="shield" iconTint="var(--red)" title={t('Sign out everywhere')} subtitle={t('Ends this session, including on this device. Your account and data are kept.')} danger onClick={signOutEverywhere} />
       </> : <>
         <Row icon="sparkles" iconTint="var(--acc)" title={t('Create account')} subtitle={t('Keeps your data safe and separate per person.')} accessory="chevron" onClick={registerHere} />
         <Row icon="person" iconTint="var(--blue)" title={t('Sign in')} accessory="chevron" onClick={signInHere} />

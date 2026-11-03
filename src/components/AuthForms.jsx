@@ -153,7 +153,7 @@ function ReverifyPause({ email, back }) {
       <div className="muted small">{t('Your account is there — the address just needs one confirmation. We sent a link to {0}; open it to confirm, then sign in as usual.', email)}</div>
       {sent
         ? <div className="dim small">{t('Sent — a fresh link is on its way to {0}. It can take a minute.', email)}</div>
-        : <Button variant="primary" icon="mail" disabled={busy} onClick={resend}>{busy ? t('Sending…') : t('Resend the link')}</Button>}
+        : <Button variant="primary" icon="link" disabled={busy} onClick={resend}>{busy ? t('Sending…') : t('Resend the link')}</Button>}
       {err && <div className="dim small">{err}</div>}
       <Button variant="ghost" className="dim" onClick={back}>{t('Back to sign in')}</Button>
     </div>
