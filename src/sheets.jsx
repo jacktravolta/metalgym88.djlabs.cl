@@ -150,8 +150,8 @@ function ImportSummary({ parsed, close }) {
     update(s => { res = mergeImport(s, parsed) })
     close()
     toast(isBW
-      ? t('{0} weigh-ins imported', res.added)
-      : t('{0} workouts imported', res.added))
+      ? t(res.added === 1 ? '{0} weigh-in imported' : '{0} weigh-ins imported', res.added)
+      : t(res.added === 1 ? '{0} workout imported' : '{0} workouts imported', res.added))
   }
 
   return <>

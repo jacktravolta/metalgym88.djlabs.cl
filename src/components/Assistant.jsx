@@ -190,7 +190,7 @@ function AssistantPanel({ close }) {
       {/* Persona naming is server-driven later (per-heart persona in T6); a generic,
           language-neutral product name for now. */}
       {'Asistente metalgym88'} · {t('reads your synced training data')}
-      {balance != null && <> · {t('{0} credits available', balance)}</>}
+      {balance != null && <> · {t(balance === 1 ? '{0} credit available' : '{0} credits available', balance)}</>}
     </div>
 
     {offline && <div className="dim small" style={{ marginBottom: 8, lineHeight: 1.5 }}>{OFFLINE_LINE()}</div>}
@@ -219,7 +219,7 @@ function AssistantPanel({ close }) {
       {tariff === undefined
         ? '…'
         : tariff
-          ? t('{0} credits per question.', tariff.cost)
+          ? t(tariff.cost === 1 ? '{0} credit per question.' : '{0} credits per question.', tariff.cost)
           : t('The cost is shown when you confirm.')}
     </div>
 

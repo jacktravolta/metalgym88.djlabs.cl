@@ -90,7 +90,7 @@ export default function Settings() {
         {/* Platform wallet: AI credits, movements and top-up (guest/demo/mobile have no
             platform account, so the row only exists for signed-in users). */}
         <Row icon="wallet" iconTint="var(--acc)" title={t('Wallet')}
-          subtitle={balance != null ? t('{0} credits available', fmtNum(balance)) : t('AI credits and top-ups')}
+          subtitle={balance != null ? t(balance === 1 ? '{0} credit available' : '{0} credits available', fmtNum(balance)) : t('AI credits and top-ups')}
           accessory="chevron" onClick={openWallet} />
         {/* The paid feature itself; renders itself disabled with an honest line when offline. */}
         <AssistantRow />
