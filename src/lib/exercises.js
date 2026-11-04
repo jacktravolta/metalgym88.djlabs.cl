@@ -37,11 +37,14 @@ export function registerCustom(list) {
 // Full searchable catalogue — customs first so your own exercises are easy to find.
 export const allExercises = st => [...(st.customEx || []), ...EXDB]
 
-// Media normally sits next to the app (img/ and gif/, mounted into the web container).
-// A build can point them somewhere else — the demo build pulls them off a CDN instead of
-// shipping ~140 MB of images into the deployment.
-const IMG_BASE = import.meta.env.VITE_IMG_BASE || 'img/'
-const GIF_BASE = import.meta.env.VITE_GIF_BASE || 'gif/'
+// The exercise media (~140 MB of pictures and animations) is NOT in this
+// repository: it comes from the public dataset the catalogue comes from, and
+// the default points at its CDN — so every build shows the pictures and the
+// animations instead of a screen full of broken images. A build can point
+// somewhere else (a local copy, your own CDN) with VITE_IMG_BASE / VITE_GIF_BASE.
+const DATASET_CDN = 'https://cdn.jsdelivr.net/gh/hasaneyldrm/exercises-dataset@7455efae41b330c265e7cd4b78dfa848e7ce5ebd'
+const IMG_BASE = import.meta.env.VITE_IMG_BASE || DATASET_CDN + '/images/'
+const GIF_BASE = import.meta.env.VITE_GIF_BASE || DATASET_CDN + '/videos/'
 export const imgSrc = ex => IMG_BASE + ex.img
 export const gifSrc = ex => GIF_BASE + ex.gif
 

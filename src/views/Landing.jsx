@@ -19,8 +19,9 @@ import { useEffect, useState } from 'react'
 import Icon from '../components/Icon.jsx'
 import { EXIDX, gifSrc } from '../lib/exercises.js'
 import { apiUrl } from '../lib/platform/config.js'
-import { requestMagicLink } from '../lib/platform/auth.js'
+import { requestMagicLink, me as platformMe } from '../lib/platform/auth.js'
 import { phttp } from '../lib/platform/http.js'
+import { useStore } from '../store/useStore.js'
 import '../landing.css'
 
 /* The WhatsApp number of the metalgym88 line (owner-confirmed on 2026-11-04).
@@ -92,12 +93,16 @@ const fmtCLP = n => n.toLocaleString('es-CL')
 
 /* ------------------------------------------------------------------ forms -- */
 
-function RegisterCard() {
+function RegisterCard({ loggedIn }) {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [terms, setTerms] = useState(false)
   const [busy, setBusy] = useState(false)
   const [sent, setSent] = useState(false)
+  // 'register' (new account) or 'login' (the account already exists): both end
+  // in the same passwordless link, but the promise made to the person is not
+  // the same — a login does not hand out the welcome credits again.
+  const [mode, setMode] = useState('register')
   const [err, setErr] = useState(null)
 
   const submit = async ev => {
@@ -112,6 +117,28 @@ function RegisterCard() {
       // The platform's passwordless entry: the account is created (or found)
       // and the access link travels by email. Same contract the app uses.
       await requestMagicLink(mail, { terms: true, name: n })
+      setMode('register')
+      setSent(true)
+    } catch (e) {
+      setErr((e && e.message) || 'No pudimos enviar el enlace ahora. Inténtalo en un momento, por favor.')
+    }
+    setBusy(false)
+  }
+
+  // The account already exists: the same passwordless entry, without a name
+  // and without the welcome credits again (those are only for a fresh
+  // account). The platform asks for the Terms acceptance on every access
+  // request, so it travels from the checkbox above — the front never consents
+  // on the person's behalf.
+  const loginSubmit = async () => {
+    if (busy) return
+    const mail = email.trim()
+    if (!mail) { setErr('Escribe tu correo y te enviamos el enlace para entrar.'); return }
+    if (!terms) { setErr('Para enviarte el enlace necesitamos que aceptes los Términos y Condiciones.'); return }
+    setBusy(true); setErr(null)
+    try {
+      await requestMagicLink(mail, { terms: true })
+      setMode('login')
       setSent(true)
     } catch (e) {
       setErr((e && e.message) || 'No pudimos enviar el enlace ahora. Inténtalo en un momento, por favor.')
@@ -128,12 +155,15 @@ function RegisterCard() {
           Vence en unos minutos y funciona con un solo toque: sin contraseñas.
         </p>
         <p className="lg-msg ok">
-          Te acreditamos 100 créditos de bienvenida al confirmar tu correo. Con ellos puedes preguntarle
-          al coach IA lo que quieras sobre tu entrenamiento.
+          {mode === 'login'
+            ? 'Con ese enlace entras directo a tu panel. Si tu cuenta ya estaba activa, vuelves a donde la dejaste.'
+            : 'Te acreditamos 100 créditos de bienvenida al confirmar tu correo. Con ellos puedes preguntarle al coach IA lo que quieras sobre tu entrenamiento.'}
         </p>
-        <a className="lg-btn ghost block" style={{ marginTop: 14 }} href="/#/home">
-          Ir a mi panel
-        </a>
+        {loggedIn && (
+          <a className="lg-btn ghost block" style={{ marginTop: 14 }} href="/#/home">
+            Ir a mi panel
+          </a>
+        )}
       </div>
     )
   }
@@ -176,6 +206,12 @@ function RegisterCard() {
         {err && <p className="lg-msg err">{err}</p>}
         <button className="lg-btn primary block" type="submit" disabled={busy}>
           {busy ? 'Enviando…' : 'Crear mi cuenta gratis'}
+        </button>
+        <p className="lg-note" style={{ textAlign: 'center', marginTop: 14, marginBottom: 8 }}>
+          ¿Ya tienes cuenta? Te enviamos el mismo enlace de acceso, sin contraseñas.
+        </p>
+        <button className="lg-btn ghost block" type="button" onClick={loginSubmit} disabled={busy}>
+          {busy ? 'Enviando…' : 'Iniciar sesión'}
         </button>
       </form>
     </div>
@@ -265,8 +301,24 @@ export default function Landing() {
     return () => document.body.classList.remove('is-landing')
   }, [])
 
+  // Who is here: the store keeps the session in local storage, so the landing
+  // knows who the person is before the app boots. A cached session can be
+  // stale, so it is checked once against the platform: a button that leads to
+  // a login wall is worse than no button at all.
+  const user = useStore(s => s.user)
+  const setUser = useStore(s => s.setUser)
+  useEffect(() => {
+    if (!user) return
+    let alive = true
+    platformMe()
+      .then(({ user: u }) => { if (alive && u) setUser(u) })
+      .catch(e => { if (alive && e && e.status === 401) setUser(null) })
+    return () => { alive = false }
+  }, [])
+
   const showcase = SHOWCASE.map(s => ({ ...s, ex: EXIDX[s.id] })).filter(s => s.ex)
   const wspHref = WHATSAPP_NUMBER ? `https://wa.me/${WHATSAPP_NUMBER.replace(/[^\d]/g, '')}` : null
+  const loggedIn = !!user
 
   return (
     <div className="landing">
@@ -286,7 +338,11 @@ export default function Landing() {
             <a href="#contacto">Contacto</a>
           </nav>
           <div className="lg-head-cta">
-            <a className="lg-btn ghost" href="/#/home">Entrar al panel</a>
+            {loggedIn ? (
+              <a className="lg-btn ghost" href="/#/home">Entrar al panel</a>
+            ) : (
+              <a className="lg-btn ghost" href="#acceso">Iniciar sesión</a>
+            )}
           </div>
         </div>
       </header>
@@ -399,7 +455,11 @@ export default function Landing() {
             </div>
             <div className="lg-cta">
               <a className="lg-btn primary" href="#acceso">Empezar gratis</a>
-              <a className="lg-btn ghost" href="/#/settings">Ver la billetera</a>
+              {loggedIn ? (
+                <a className="lg-btn ghost" href="/#/settings">Ver la billetera</a>
+              ) : (
+                <a className="lg-btn ghost" href="#que-incluye">Ver qué incluye</a>
+              )}
             </div>
           </div>
         </section>
@@ -415,7 +475,7 @@ export default function Landing() {
               </p>
             </div>
             <div className="lg-panels">
-              <RegisterCard />
+              <RegisterCard loggedIn={loggedIn} />
               <div id="contacto" className="lg-contact">
                 <ContactCard />
                 <div className="lg-contact-side">
@@ -453,7 +513,11 @@ export default function Landing() {
             <a href={apiUrl('/terminos')} target="_blank" rel="noreferrer">Términos y Condiciones</a>
             <a href={apiUrl('/privacidad')} target="_blank" rel="noreferrer">Privacidad</a>
             <a href="#contacto">Contacto</a>
-            <a href="/#/home">Entrar al panel</a>
+            {loggedIn ? (
+              <a href="/#/home">Entrar al panel</a>
+            ) : (
+              <a href="#acceso">Iniciar sesión</a>
+            )}
           </div>
         </div>
       </footer>
