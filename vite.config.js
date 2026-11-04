@@ -6,7 +6,10 @@ const media = process.env.MEDIA_TARGET || 'http://127.0.0.1:8888'
 
 export default defineConfig({
   plugins: [react()],
-  base: './',
+  // Absolute base: the app is served at the root of its subdomain, and the
+  // magic-link landing (/auth/verify) is a deep path. With a relative base the
+  // browser asked for /auth/assets/… and got a 404 — a blank page.
+  base: '/',
   server: {
     proxy: {
       '/api': { target: backend, changeOrigin: true },

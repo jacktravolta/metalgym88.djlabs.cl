@@ -15,6 +15,8 @@ setLang('es').finally(() => {
 })
 
 // Not in the mobile build: the native shell already serves everything from disk.
+// Absolute path: on a deep route (the magic-link landing) 'sw.js' would resolve
+// to /auth/sw.js and the worker would never install.
 if (!MOBILE && 'serviceWorker' in navigator && location.protocol === 'https:') {
-  navigator.serviceWorker.register('sw.js').catch(() => {})
+  navigator.serviceWorker.register('/sw.js').catch(() => {})
 }
