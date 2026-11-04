@@ -865,7 +865,7 @@ h4.sec{
 #coach-fab .icn{font-size:23px}
 #coach-fab:active{transform:scale(.94)}
 /* the rest timer owns the bottom of the screen while it counts — the coach steps up */
-body.resting #coach-fab{bottom:calc(160px + var(--sab))}
+body.resting #coach-fab{bottom:calc(200px + var(--sab))}
 
 /* ---------------------------------------------------------------- misc --- */
 .empty{text-align:center;color:var(--label-2);padding:44px 20px;font-size:15px;line-height:1.45}
