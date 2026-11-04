@@ -64,6 +64,9 @@ export function login(email, password) {
 // the user's behalf, and the platform says no.
 export function requestMagicLink(email, opts = {}) {
   const body = withHeart({ email })
+  // The name is optional: for a first-time visitor it is how the platform names
+  // the account it is about to create.
+  if (opts.name) body.name = opts.name
   if (opts.terms) body.terms_accepted = true
   return platformCall('/auth/magic-link', { method: 'POST', body: JSON.stringify(body) })
 }

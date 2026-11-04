@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore, hasData } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
-import { login, register, requestMagicLink, EMAIL_REVERIFY_REQUIRED } from '../lib/platform/auth.js'
+import { login, requestMagicLink, EMAIL_REVERIFY_REQUIRED } from '../lib/platform/auth.js'
 import { apiUrl } from '../lib/platform/config.js'
 import { t } from '../lib/i18n.js'
 import { Button } from './ui.jsx'
@@ -102,11 +102,7 @@ function MagicLinkForm({ back }) {
     catch (e) { setErr(e.message || t('Could not send the link')) }
     setBusy(false)
   }
-  if (sent) return <div style={gap}>
-    <h3 style={{ margin: 0 }}>{t('Check your email')}</h3>
-    <div className="muted small">{t('If {0} is an account here, a sign-in link is on its way — it works for the next few minutes.', email.trim())}</div>
-    <Button variant="ghost" onClick={back}>{t('Back')}</Button>
-  </div>
+  if (sent) return <LinkSent email={email.trim()} back={back} />
   return (
     <form onSubmit={go} style={gap}>
       <h3 style={{ margin: 0 }}>{t('Sign-in link by email')}</h3>
@@ -121,11 +117,23 @@ function MagicLinkForm({ back }) {
   )
 }
 
-function RegisterForm({ onOk, onVerify, toSignin }) {
+// The state after a link is on its way. One copy for both doors (sign-in and
+// registration): the platform answers the same way and the person deserves the
+// same calm message.
+function LinkSent({ email, back }) {
+  return <div style={gap}>
+    <h3 style={{ margin: 0 }}>{t('Check your email')}</h3>
+    <div className="muted small">{t('If {0} is an account here, a sign-in link is on its way — it works for the next few minutes.', email)}</div>
+    <Button variant="ghost" onClick={back}>{t('Back')}</Button>
+  </div>
+}
+
+function RegisterForm({ onVerify, toSignin }) {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [terms, setTerms] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [sent, setSent] = useState(false)
   const [err, setErr] = useState(null)
   const ref = useRef(null)
   useEffect(() => { setTimeout(() => ref.current?.focus(), 250) }, [])
@@ -137,15 +145,19 @@ function RegisterForm({ onOk, onVerify, toSignin }) {
     if (!terms) { setErr(t('Please accept the Terms and Conditions to continue')); return }
     setBusy(true); setErr(null)
     try {
-      const { user } = await register(email.trim(), n, { terms })
-      useStore.getState().setUser(user)
-      await afterIn(onOk, 'Welcome, {0}')
+      // Passwordless entry — the same door the landing uses. The account is
+      // created (or found) by the platform and the access link travels by
+      // email. The old POST /auth/register path needed a password this form
+      // never asked for, so it always came back as a validation error.
+      await requestMagicLink(email.trim(), { terms, name: n })
+      setSent(true)
     } catch (e) {
       if (e.code === EMAIL_REVERIFY_REQUIRED) onVerify?.(email.trim())
-      else setErr(e.message || t('Registration failed'))
+      else setErr(e.message || t('Could not send the link'))
     }
     setBusy(false)
   }
+  if (sent) return <LinkSent email={email.trim()} back={toSignin} />
   return (
     <form onSubmit={go} style={gap}>
       <h3 style={{ margin: 0 }}>{t('Create your account')}</h3>
@@ -154,7 +166,7 @@ function RegisterForm({ onOk, onVerify, toSignin }) {
       <input className="input" type="email" autoComplete="email" placeholder={t('Email')} value={email} onChange={e => setEmail(e.target.value)} />
       <TermsConsent checked={terms} onChange={setTerms} />
       {err && <div className="dim small">{err}</div>}
-      <Button variant="primary" type="submit" disabled={busy}>{busy ? t('Creating…') : t('Create account')}</Button>
+      <Button variant="primary" type="submit" disabled={busy}>{busy ? t('Sending…') : t('Create account')}</Button>
       <Button variant="ghost" onClick={toSignin}>{t('I already have an account')}</Button>
     </form>
   )
@@ -196,7 +208,7 @@ export default function AuthPanel({ mode: initial = 'signin', close }) {
   }
   if (mode === 'magic') return <MagicLinkForm back={() => setMode(initial)} />
   if (mode === 'register') {
-    return <RegisterForm onOk={close} onVerify={setPausedEmail} toSignin={() => setMode('signin')} />
+    return <RegisterForm onVerify={setPausedEmail} toSignin={() => setMode('signin')} />
   }
   return <PasswordForm onOk={close} onVerify={setPausedEmail} toMagic={() => setMode('magic')} toRegister={() => setMode('register')} />
 }
