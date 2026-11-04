@@ -61,7 +61,7 @@ export default function Home() {
     {/* ---------- the product, in the panel's own card ---------- */}
     <div className="pcard">
       <div className="pcard-txt">
-        <h2>metalgym88</h2>
+        <h2>openGym</h2>
         <p>{t('Training plans, an exercise library and body-weight tracking — all inside metalgym88.')}</p>
       </div>
       <div className="pcard-cta">
