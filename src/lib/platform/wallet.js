@@ -156,11 +156,49 @@ export async function createOrder(amountClp, { documentType = 46, genKey } = {})
   throw lastErr
 }
 
-// Full-page navigation to the gateway. The calling code persists the order record
-// BEFORE navigating, so coming back can be detected even if the browser discards
-// the page state.
-export function goToPayment(url) {
-  if (typeof window !== 'undefined' && url) window.location.href = url
+/* ============================ payment gateway ============================ */
+
+// A recharge must never take the person out of the app: the gateway opens in a NEW
+// tab and this app stays exactly where it is, watching the order.
+//
+// Two browser rules shape the code:
+//   · a window opened after an await loses the user-gesture context, and pop-up
+//     blockers then refuse it — so the tab is opened FIRST (openPaymentTab, called
+//     from the click handler) and pointed at the gateway once the URL is known;
+//   · 'noopener' as a window feature makes window.open return null, so the opener
+//     is cut by hand instead.
+//
+// If the browser refuses the window, the payment continues in the same tab — the old
+// behaviour — and the breadcrumb still tells us what happened when they come back.
+export function openPaymentTab() {
+  if (typeof window === 'undefined' || typeof window.open !== 'function') return null
+  let w = null
+  try { w = window.open('', '_blank') } catch { w = null }
+  if (!w) return null
+  try { w.opener = null } catch { /* a browser that refuses the write is still fine */ }
+  return w
+}
+
+// Sends the payment tab to the gateway. `tab` is the window openPaymentTab() already
+// opened (optional — when it is missing, one is opened here). Returns 'tab' when the
+// gateway got its own tab and 'same-tab' when this app had to navigate instead.
+export function goToPayment(url, tab) {
+  if (typeof window === 'undefined' || !url) return 'same-tab'
+  let w = tab || null
+  if (!w) {
+    try { w = window.open('', '_blank') } catch { w = null }
+    if (w) { try { w.opener = null } catch { /* ignore */ } }
+  }
+  if (w) {
+    try {
+      w.location.href = url
+      return 'tab'
+    } catch {
+      try { w.close() } catch { /* the window cannot be closed either — nothing to do */ }
+    }
+  }
+  window.location.href = url
+  return 'same-tab'
 }
 
 /* ============================ return from the gateway ============================ */
@@ -243,4 +281,20 @@ async function checkReturnedTopUpOnce() {
   clearTopupRecord()
   const status = orderStatus(v)
   return { orderId: rec.order_id, voucher: v, status, kind: statusKind(status) }
+}
+
+// Asks the platform how ONE order ended, WITHOUT touching the breadcrumb: the wallet
+// keeps asking while the person pays, so the record stays available for the boot check
+// if they never come back to that sheet. A failed lookup is not an answer — it returns
+// null so the caller keeps waiting quietly instead of announcing a wrong result.
+export async function checkTopupOrder(orderId) {
+  if (!orderId) return null
+  let v
+  try {
+    v = await phttp(withHeartQuery('/payments/orders/' + encodeURIComponent(orderId) + '/voucher'), {})
+  } catch (e) {
+    return null
+  }
+  const status = orderStatus(v)
+  return { orderId, voucher: v, status, kind: statusKind(status) }
 }

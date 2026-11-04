@@ -3,9 +3,9 @@ import {
   normalizeLimits, fetchLimits, clampAmount,
   normalizeMovements, fetchMovements, movementDirection, movementLabel,
   normalizeTariffs, fetchTariffs, tariffLabel,
-  createOrder, goToPayment,
+  createOrder, goToPayment, openPaymentTab,
   saveTopupRecord, readTopupRecord, clearTopupRecord, TOPUP_RECORD_KEY,
-  orderStatus, statusKind, checkReturnedTopUp,
+  orderStatus, statusKind, checkReturnedTopUp, checkTopupOrder,
 } from './wallet.js'
 
 const BASE = 'https://api.djlabs.cl'
@@ -182,11 +182,58 @@ describe('createOrder — provider-agnostic order creation', () => {
 })
 
 describe('goToPayment', () => {
-  it('navigates by full-page redirect, not an in-app fetch or window.open', () => {
-    const fakeWindow = { location: { href: 'https://app/start' } }
+  it('opens the gateway in a NEW tab and leaves this app exactly where it is', () => {
+    const opened = { location: { href: '' } }
+    const fakeWindow = { location: { href: 'https://app/start' }, open: vi.fn(() => opened) }
     vi.stubGlobal('window', fakeWindow)
-    goToPayment('https://pay.example/checkout')
+    expect(goToPayment('https://pay.example/checkout')).toBe('tab')
+    expect(fakeWindow.open).toHaveBeenCalledWith('', '_blank')
+    expect(opened.location.href).toBe('https://pay.example/checkout')
+    expect(opened.opener).toBe(null)                    // the payment page cannot reach back
+    expect(fakeWindow.location.href).toBe('https://app/start')  // the app did NOT navigate
+  })
+
+  it('uses the tab opened beforehand (inside the click gesture) instead of opening another', () => {
+    const opened = { location: { href: '' } }
+    const fakeWindow = { location: { href: 'https://app/start' }, open: vi.fn(() => null) }
+    vi.stubGlobal('window', fakeWindow)
+    expect(goToPayment('https://pay.example/checkout', opened)).toBe('tab')
+    expect(fakeWindow.open).not.toHaveBeenCalled()
+    expect(opened.location.href).toBe('https://pay.example/checkout')
+  })
+
+  it('falls back to the same tab when the browser blocks the window', () => {
+    const fakeWindow = { location: { href: 'https://app/start' }, open: vi.fn(() => null) }
+    vi.stubGlobal('window', fakeWindow)
+    expect(goToPayment('https://pay.example/checkout')).toBe('same-tab')
     expect(fakeWindow.location.href).toBe('https://pay.example/checkout')
+  })
+
+  it('falls back to the same tab when window.open throws', () => {
+    const fakeWindow = {
+      location: { href: 'https://app/start' },
+      open: vi.fn(() => { throw new Error('blocked') }),
+    }
+    vi.stubGlobal('window', fakeWindow)
+    expect(goToPayment('https://pay.example/checkout')).toBe('same-tab')
+    expect(fakeWindow.location.href).toBe('https://pay.example/checkout')
+  })
+})
+
+describe('openPaymentTab', () => {
+  it('opens a blank tab and cuts the opener, so the gateway cannot reach back', () => {
+    const opened = { location: { href: '' }, opener: 'app' }
+    const fakeWindow = { open: vi.fn(() => opened) }
+    vi.stubGlobal('window', fakeWindow)
+    const tab = openPaymentTab()
+    expect(fakeWindow.open).toHaveBeenCalledWith('', '_blank')
+    expect(tab).toBe(opened)
+    expect(tab.opener).toBe(null)
+  })
+
+  it('returns null when the browser refuses the window', () => {
+    vi.stubGlobal('window', { open: vi.fn(() => null) })
+    expect(openPaymentTab()).toBe(null)
   })
 })
 
@@ -291,5 +338,46 @@ describe('checkReturnedTopUp', () => {
     vi.stubGlobal('fetch', m.impl)
     expect(await checkReturnedTopUp()).toBe(null)
     expect(store.has(TOPUP_RECORD_KEY)).toBe(true)
+  })
+})
+
+describe('checkTopupOrder', () => {
+  it('asks the voucher endpoint about that order and maps the result', async () => {
+    const m = mockFetch([res(200, { status: 'APPROVED' })])
+    vi.stubGlobal('fetch', m.impl)
+    const got = await checkTopupOrder('o-42')
+    expect(m.seen[0].url).toBe(BASE + '/payments/orders/o-42/voucher?heart=metalgym88')
+    expect(got).toEqual({ orderId: 'o-42', voucher: { status: 'APPROVED' }, status: 'APPROVED', kind: 'approved' })
+  })
+
+  it('does NOT consume the breadcrumb — the wallet keeps asking while the person pays', async () => {
+    const store = new Map()
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: {
+        getItem: k => (store.has(k) ? store.get(k) : null),
+        setItem: (k, v) => { store.set(k, String(v)) },
+        removeItem: k => { store.delete(k) },
+      },
+      configurable: true
+    })
+    saveTopupRecord('o-42', Date.now())
+    const m = mockFetch([res(200, { status: 'PENDING' })])
+    vi.stubGlobal('fetch', m.impl)
+    const got = await checkTopupOrder('o-42')
+    expect(got.kind).toBe('pending')
+    expect(store.has(TOPUP_RECORD_KEY)).toBe(true)  // still there for the boot check
+  })
+
+  it('returns null on a network error instead of throwing', async () => {
+    const m = mockFetch(['network'])
+    vi.stubGlobal('fetch', m.impl)
+    expect(await checkTopupOrder('o-42')).toBe(null)
+  })
+
+  it('asks nothing without an order id', async () => {
+    const m = mockFetch([])
+    vi.stubGlobal('fetch', m.impl)
+    expect(await checkTopupOrder(null)).toBe(null)
+    expect(m.impl).not.toHaveBeenCalled()
   })
 })

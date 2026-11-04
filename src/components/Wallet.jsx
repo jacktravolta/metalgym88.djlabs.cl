@@ -9,7 +9,11 @@
 // The payment gateway is provider-agnostic and deliberately unnamed in every string.
 // Boleta (document_type 46) is the only document type here; factura + fiscal fields come
 // in a later task (the seam is in wallet.js createOrder).
-import { useEffect, useState } from 'react'
+//
+// The gateway opens in ANOTHER TAB: a recharge must never replace the app with the
+// payment page (and never take the person out of it). This app stays open, watches
+// the order (TopUpWaitSheet) and reports the result the moment it is decided.
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import { me as platformMe } from '../lib/platform/auth.js'
@@ -19,7 +23,8 @@ import { t } from '../lib/i18n.js'
 import { fmtNum, fmtDate } from '../lib/format.js'
 import {
   fetchMovements, fetchTariffs, fetchLimits, clampAmount,
-  createOrder, goToPayment, saveTopupRecord, checkReturnedTopUp,
+  createOrder, goToPayment, openPaymentTab, saveTopupRecord, clearTopupRecord,
+  checkReturnedTopUp, checkTopupOrder,
 } from '../lib/platform/wallet.js'
 import Icon from './Icon.jsx'
 import { Button, NumberField } from './ui.jsx'
@@ -28,6 +33,13 @@ const gap = { display: 'grid', gap: 10 }
 // Default pack when the platform gives no limits of its own (server still re-clamps).
 const PRESETS = [1000, 5000, 10000]
 const DEFAULT_AMOUNT = 5000
+// How often the wallet asks the platform how the payment went while the person pays.
+const TOPUP_POLL_MS = 6000
+// Statuses that end the wait: anything else still means "not decided yet".
+const FINAL_TOPUP_KINDS = ['approved', 'rejected', 'canceled', 'pending_review']
+
+// A blank tab we opened but never used must not stay in the person's tab bar.
+const closeTab = w => { try { if (w && typeof w.close === 'function') w.close() } catch { /* ignore */ } }
 
 // server movement rows carry full ISO timestamps; the app's fmtDate wants a YYYY-MM-DD.
 const dayOf = iso => {
@@ -53,6 +65,78 @@ function TopUpStatusSheet({ result, close }) {
     <h3 style={{ margin: '8px 0 4px' }}>{copy[0]}</h3>
     <div className="muted small" style={{ marginBottom: 16, lineHeight: 1.5 }}>{copy[1]}</div>
     <Button variant="primary" onClick={() => { close(); openWallet() }}>{t('See my wallet')}</Button>
+    <div style={{ height: 8 }} />
+    <Button variant="ghost" className="dim" onClick={close}>{t('Close')}</Button>
+  </div>
+}
+
+// The payment now happens in ANOTHER tab, so this app stays open and watches the
+// order. This sheet says what is going on and offers the two ways forward: ask the
+// platform how the payment went, or open the payment page once more. The moment the
+// answer is final it hands over to the status sheet that already exists.
+function TopUpWaitSheet({ orderId, url, close }) {
+  const [checking, setChecking] = useState(false)
+  const settled = useRef(false)
+  const inflight = useRef(false)
+  const mounted = useRef(true)
+
+  useEffect(() => {
+    mounted.current = true
+    return () => { mounted.current = false }
+  }, [])
+
+  // A final answer ends the wait: the status sheet speaks, and the breadcrumb has
+  // done its job — the boot check must not announce the same recharge a second time.
+  const settle = useCallback(r => {
+    if (!r || settled.current || !FINAL_TOPUP_KINDS.includes(r.kind)) return false
+    settled.current = true
+    clearTopupRecord()
+    close()
+    useUI.getState().openSheet(c2 => <TopUpStatusSheet result={r} close={c2} />)
+    return true
+  }, [close])
+
+  // A pending answer changes nothing: the person keeps paying and we keep waiting.
+  const check = useCallback(async () => {
+    if (settled.current || inflight.current) return
+    inflight.current = true
+    if (mounted.current) setChecking(true)
+    try {
+      const r = await checkTopupOrder(orderId)
+      if (r && mounted.current) settle(r)
+    } finally {
+      inflight.current = false
+      if (mounted.current) setChecking(false)
+    }
+  }, [orderId, settle])
+
+  // While the sheet is open the wallet keeps asking (quietly), and asks once more as
+  // soon as the person comes back to this tab.
+  useEffect(() => {
+    if (!orderId) return
+    const int = setInterval(check, TOPUP_POLL_MS)
+    const onFocus = () => check()
+    const onVisible = () => { if (document.visibilityState === 'visible') check() }
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(int)
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [check, orderId])
+
+  return <div style={{ textAlign: 'center', padding: '6px 0' }}>
+    <div style={{ fontSize: 40, display: 'flex', justifyContent: 'center', color: 'var(--acc)' }}>
+      <Icon name="expand" />
+    </div>
+    <h3 style={{ margin: '8px 0 4px' }}>{t('We opened the payment page in another tab')}</h3>
+    <div className="muted small" style={{ marginBottom: 16, lineHeight: 1.5 }}>
+      {t('Finish the payment there — this app stays open and checks the result for you.')}
+    </div>
+    <Button variant="primary" disabled={checking} onClick={check}>{t('Check the payment')}</Button>
+    <div style={{ height: 8 }} />
+    <Button onClick={() => goToPayment(url)}>{t('Open the payment page again')}</Button>
     <div style={{ height: 8 }} />
     <Button variant="ghost" className="dim" onClick={close}>{t('Close')}</Button>
   </div>
@@ -119,17 +203,32 @@ function WalletPanel({ close }) {
     if (busy) return
     const clamped = clampAmount(amount, limits)
     if (!clamped) { setTopupErr(t('Choose an amount first — pick a pack or type one.')); return }
+    // The payment tab opens NOW, inside the click: a window opened after the order
+    // call loses the user gesture and pop-up blockers refuse it — which would mean
+    // replacing the app with the gateway, the very thing this flow avoids.
+    const tab = openPaymentTab()
     setBusy(true); setTopupErr(null)
     try {
       const { order } = await createOrder(clamped)
       const url = order && (order.redirect_url || order.redirectUrl)
-      if (!url) { setTopupErr(t("Couldn't start the payment — try again in a moment.")); setBusy(false); return }
-      // Breadcrumb BEFORE navigating away: coming back is detected even if the browser
-      // threw the page state away. The voucher lookup needs the order id.
+      if (!url) {
+        setTopupErr(t("Couldn't start the payment — try again in a moment."))
+        closeTab(tab); setBusy(false); return
+      }
+      // Breadcrumb BEFORE the gateway opens: coming back is detected even if the
+      // browser threw the page state away. The voucher lookup needs the order id.
       const orderId = order && (order.id || order.order_id || order.orderId)
       if (orderId) saveTopupRecord(orderId)
-      goToPayment(url)
+      goToPayment(url, tab)
+      // The app stays alive now, so the button goes back to normal right away
+      // instead of waiting for a page that will never come back.
+      setBusy(false)
+      if (orderId) {
+        // The sheet that explains the payment in progress lives inside the app.
+        useUI.getState().openSheet(c2 => <TopUpWaitSheet orderId={orderId} url={url} close={c2} />)
+      }
     } catch (e) {
+      closeTab(tab)
       setTopupErr(
         e.status === 401 ? t('Your session has expired — sign in again and come back to your wallet.')
         : e.status === 402 ? t("Adding credits isn't available right now — please try again later.")
@@ -185,7 +284,7 @@ function WalletPanel({ close }) {
       </Button>
       {topupErr && <div className="dim small" style={{ marginTop: 8 }}>{topupErr}</div>}
       <div className="dim small" style={{ marginTop: 8, lineHeight: 1.5 }}>
-        {t('You go to the payment site and come back here by yourself — your recharge is checked automatically on return.')}
+        {t('The payment page opens in another tab — this app stays open and checks your recharge for you.')}
       </div>
     </>}
 
@@ -231,10 +330,17 @@ function WalletPanel({ close }) {
 }
 
 // Signed-in platform build only: guests, demo and mobile have no platform wallet.
+// The wallet is a singleton: opening it again replaces the open one instead of
+// stacking a second copy on top of it (the balance is re-read on mount anyway).
+let walletSheetId = null
 export function openWallet() {
   if (MOBILE || DEMO) return null
   if (!useStore.getState().user) return null
-  return useUI.getState().openSheet(close => <WalletPanel close={close} />)
+  const ui = useUI.getState()
+  if (walletSheetId && ui.sheets.some(s => s.id === walletSheetId)) ui.closeSheet(walletSheetId)
+  const h = ui.openSheet(close => <WalletPanel close={close} />)
+  walletSheetId = h.id
+  return h
 }
 
 // Boot check: an order that came back from the payment site since the last visit speaks
