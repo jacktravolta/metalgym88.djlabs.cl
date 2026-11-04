@@ -565,4 +565,10 @@ export default {
   'Ask about your training, plan or progress': 'Ask about your training, plan or progress',
   '{0} credits available for the assistant — your plan and history stay free.': '{0} credits available for the assistant — your plan and history stay free.',
   'Credits pay for the assistant. Your plan and history stay free.': 'Credits pay for the assistant. Your plan and history stay free.',
+  // --- sign-in landing (magic link) ---
+  'Verifying your access…': '접근 권한을 확인하는 중…',
+  'That link no longer works': '이 링크는 더 이상 사용할 수 없어요',
+  'Ask for a new one and we will send it right away — your account is still intact.': '새 링크를 요청해 주세요 — 바로 보내드릴게요. 계정은 그대로예요.',
+  'Back to sign in': '로그인으로 돌아가기',
+  'Try again': '다시 시도',
 }

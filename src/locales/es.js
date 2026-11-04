@@ -678,4 +678,8 @@ export default {
   'I accept the Terms and Conditions': 'Acepto los Términos y Condiciones',
   'Please accept the Terms and Conditions to continue': 'Para continuar, acepta los Términos y Condiciones',
   'Read them': 'Leerlos',
+  // --- sign-in landing (magic link) ---
+  'Verifying your access…': 'Verificando tu acceso…',
+  'That link no longer works': 'Ese enlace ya no sirve',
+  'Ask for a new one and we will send it right away — your account is still intact.': 'Pide uno nuevo y te lo enviamos al instante — tu cuenta sigue intacta.',
 }

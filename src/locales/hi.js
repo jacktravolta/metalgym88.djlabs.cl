@@ -565,4 +565,10 @@ export default {
   'Ask about your training, plan or progress': 'Ask about your training, plan or progress',
   '{0} credits available for the assistant — your plan and history stay free.': '{0} credits available for the assistant — your plan and history stay free.',
   'Credits pay for the assistant. Your plan and history stay free.': 'Credits pay for the assistant. Your plan and history stay free.',
+  // --- sign-in landing (magic link) ---
+  'Verifying your access…': 'आपकी पहुँच जाँची जा रही है…',
+  'That link no longer works': 'यह लिंक अब काम नहीं करता',
+  'Ask for a new one and we will send it right away — your account is still intact.': 'नया लिंक माँग लें — हम तुरंत भेज देंगे। आपका खाता बिल्कुल सुरक्षित है।',
+  'Back to sign in': 'साइन-इन पर वापस जाएँ',
+  'Try again': 'फिर कोशिश करें',
 }

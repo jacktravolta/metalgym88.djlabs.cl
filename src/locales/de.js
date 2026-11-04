@@ -582,4 +582,10 @@ export default {
   'Ask about your training, plan or progress': 'Ask about your training, plan or progress',
   '{0} credits available for the assistant — your plan and history stay free.': '{0} credits available for the assistant — your plan and history stay free.',
   'Credits pay for the assistant. Your plan and history stay free.': 'Credits pay for the assistant. Your plan and history stay free.',
+  // --- sign-in landing (magic link) ---
+  'Verifying your access…': 'Zugang wird geprüft…',
+  'That link no longer works': 'Dieser Link funktioniert nicht mehr',
+  'Ask for a new one and we will send it right away — your account is still intact.': 'Fordere einen neuen an — wir schicken ihn dir sofort. Dein Konto bleibt unverändert.',
+  'Back to sign in': 'Zurück zur Anmeldung',
+  'Try again': 'Erneut versuchen',
 }

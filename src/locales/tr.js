@@ -565,4 +565,10 @@ export default {
   'Ask about your training, plan or progress': 'Ask about your training, plan or progress',
   '{0} credits available for the assistant — your plan and history stay free.': '{0} credits available for the assistant — your plan and history stay free.',
   'Credits pay for the assistant. Your plan and history stay free.': 'Credits pay for the assistant. Your plan and history stay free.',
+  // --- sign-in landing (magic link) ---
+  'Verifying your access…': 'Erişimin doğrulanıyor…',
+  'That link no longer works': 'Bu bağlantı artık çalışmıyor',
+  'Ask for a new one and we will send it right away — your account is still intact.': 'Yenisini iste — anında gönderelim. Hesabın olduğu gibi duruyor.',
+  'Back to sign in': 'Girişe dön',
+  'Try again': 'Tekrar dene',
 }
