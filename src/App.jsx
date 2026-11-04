@@ -55,8 +55,8 @@ function Shell() {
   const authed = user || isGuest
   if (!ready && !authed) return (
     <div id="app">
-      <div style={{ paddingTop: '44vh', display: 'flex', justifyContent: 'center', fontSize: 34, color: 'var(--label-3)' }}>
-        <Icon name="dumbbell" />
+      <div style={{ paddingTop: '44vh', display: 'flex', justifyContent: 'center' }}>
+        <img src="/logo.jpg" alt="" width={72} height={72} style={{ borderRadius: '50%' }} />
       </div>
     </div>
   )
