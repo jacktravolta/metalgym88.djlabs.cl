@@ -86,7 +86,7 @@ export default function Avatar({ user, version, onChanged, toast }) {
           : initialsOf(name)}
       </div>
       <div style={{ minWidth: 0 }}>
-        <input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden"
+        <input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp" style={{ display: 'none' }}
           onChange={onFile} aria-hidden="true" tabIndex={-1} />
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <Button variant="primary" onClick={pick} disabled={busy} icon="upload">
