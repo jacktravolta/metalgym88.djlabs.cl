@@ -9,7 +9,7 @@ export default function Login() {
   const { setGuest } = useStore()
   const head = <>
     <div style={{ fontSize: 54, display: 'flex', justifyContent: 'center', color: 'var(--acc)' }}><Icon name="dumbbell" /></div>
-    <h1 style={{ fontSize: 34, fontWeight: 700, letterSpacing: '-.028em', margin: '10px 0 4px' }}>openGym</h1>
+    <h1 style={{ fontSize: 34, fontWeight: 700, letterSpacing: '-.028em', margin: '10px 0 4px' }}>metalgym88</h1>
   </>
   const wrap = { display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '78vh', textAlign: 'center' }
 
@@ -35,7 +35,7 @@ export default function Login() {
         <AuthPanel mode="signin" close={() => { /* the gate re-renders as soon as a user exists */ }} />
       </div>
       <Button variant="ghost" className="dim" onClick={() => setGuest(true)}>{t('Continue without account')}</Button>
-      <div className="dim small" style={{ marginTop: 26, lineHeight: 1.5 }}>{t('One account works across the djlabs apps — each keeps its own data.')}<br />{t('Or use openGym without an account, everything stays on this device.')}</div>
+      <div className="dim small" style={{ marginTop: 26, lineHeight: 1.5 }}>{t('One account works across the djlabs apps — each keeps its own data.')}<br />{t('Or use metalgym88 without an account, everything stays on this device.')}</div>
     </div>
   )
 }

@@ -54,14 +54,14 @@ export default function Home() {
 
   return <div className="narrow">
     <div className="hdr">
-      <div><h1>{user ? t('Hi {0}', user.name) : 'openGym'}</h1><div className="sub">{today.toLocaleDateString(dateLocale(), { weekday: 'long', day: 'numeric', month: 'long' })}</div></div>
+      <div><h1>{user ? t('Hi {0}', user.name) : 'metalgym88'}</h1><div className="sub">{today.toLocaleDateString(dateLocale(), { weekday: 'long', day: 'numeric', month: 'long' })}</div></div>
       <button className="iconbtn" onClick={() => nav('/settings')} aria-label={t('Settings')}><Icon name="gear" /></button>
     </div>
 
     {/* ---------- the product, in the panel's own card ---------- */}
     <div className="pcard">
       <div className="pcard-txt">
-        <h2>openGym</h2>
+        <h2>metalgym88</h2>
         <p>{t('Training plans, an exercise library and body-weight tracking — all inside metalgym88.')}</p>
       </div>
       <div className="pcard-cta">
