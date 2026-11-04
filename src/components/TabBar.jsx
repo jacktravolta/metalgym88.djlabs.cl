@@ -55,7 +55,12 @@ export default function TabBar({ onStart }) {
 
   return (
     <nav id="tabbar">
-      <div className="rail-brand">metalgym88</div>
+      {/* The official badge next to the name: the rail shows the brand, not
+          just a name. The image is decorative — the wordmark names it. */}
+      <div className="rail-brand">
+        <img className="rail-logo" src="/logo.jpg" alt="" width={24} height={24} />
+        <span>metalgym88</span>
+      </div>
       <Tab k="home" icon="house" to="/home" label={t('Home')} />
       <Tab k="plan" icon="calendar" to="/plan" label={t('Plan')} />
       <button className={'start' + (S.active ? ' rec' : '')} onClick={startWorkout}>

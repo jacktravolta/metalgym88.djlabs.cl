@@ -325,7 +325,9 @@ export default function Landing() {
       <header className="lg-head">
         <div className="lg-head-in">
           <div className="lg-brand">
-            <Icon name="dumbbell" />
+            {/* The official badge, not a generic glyph: the wordmark beside it
+                already names the product, so the image itself stays decorative. */}
+            <img className="lg-logo" src="/logo.jpg" alt="" width={42} height={42} />
             <span>
               metalgym88
               <small>Tu entrenamiento</small>

@@ -337,6 +337,9 @@ h4.sec{
   display:none;
   padding:0 12px 18px;font-size:17px;font-weight:700;letter-spacing:-.02em;color:var(--label);
 }
+/* The brand badge on the rail: the artwork is a circular mark on solid black,
+   so the rounded clip only trims the black corners. */
+#tabbar .rail-brand .rail-logo{width:24px;height:24px;flex:none;display:block;border-radius:50%;object-fit:cover}
 #tabbar button.rail-only{display:none}
 
 /* ------------------------------------------------------------ week strip -- */
@@ -979,7 +982,7 @@ body.resting #coach-fab{bottom:calc(200px + var(--sab))}
   #tabbar button.start{margin-top:0}
   #tabbar button.start .cir{width:40px;height:40px}
   #tabbar button.start .cir .icn{font-size:21px}
-  #tabbar .rail-brand{display:block}
+  #tabbar .rail-brand{display:flex;align-items:center;gap:9px}
   #tabbar button.rail-only{display:flex}
   /* History + Settings sit at the foot of the rail */
   #tabbar button.rail-end{margin-top:auto}

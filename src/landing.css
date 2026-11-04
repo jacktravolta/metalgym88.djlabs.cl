@@ -30,7 +30,10 @@ body.is-landing{padding-left:0 !important}
   height:62px;
 }
 .lg-brand{display:flex;align-items:center;gap:9px;font-weight:700;font-size:19px;letter-spacing:-.02em;color:var(--label)}
-.lg-brand .icn{font-size:22px;color:var(--acc);--icon-stroke:2}
+/* The brand badge: the artwork is a circular mark on solid black, so the
+   rounded clip only trims the black corners — nothing of the badge is lost.
+   No shadow, no filter: the mark is shown exactly as it was drawn. */
+.lg-brand .lg-logo{width:42px;height:42px;flex:none;display:block;border-radius:50%;object-fit:cover}
 .lg-brand span small{display:block;font-size:11px;font-weight:500;color:var(--label-3);letter-spacing:.04em;text-transform:uppercase}
 .lg-nav{display:none;margin-left:auto;gap:22px;align-items:center}
 .lg-nav a{color:var(--label-2);font-size:14px;font-weight:500;transition:color var(--fast)}

@@ -2,13 +2,16 @@ import { useStore } from '../store/useStore.js'
 import AuthPanel from '../components/AuthForms.jsx'
 import { t } from '../lib/i18n.js'
 import { DEMO, REPO } from '../lib/demo.js'
-import Icon from '../components/Icon.jsx'
 import { Button } from '../components/ui.jsx'
 
 export default function Login() {
   const { setGuest } = useStore()
   const head = <>
-    <div style={{ fontSize: 54, display: 'flex', justifyContent: 'center', color: 'var(--acc)' }}><Icon name="dumbbell" /></div>
+    {/* The official badge instead of a generic glyph: the title below it
+        already names the product, so the image itself stays decorative. */}
+    <div style={{ display: 'flex', justifyContent: 'center' }}>
+      <img src="/logo.jpg" alt="" width={76} height={76} style={{ width: 76, height: 76, borderRadius: '50%' }} />
+    </div>
     <h1 style={{ fontSize: 34, fontWeight: 700, letterSpacing: '-.028em', margin: '10px 0 4px' }}>metalgym88</h1>
   </>
   const wrap = { display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '78vh', textAlign: 'center' }
