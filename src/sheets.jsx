@@ -22,6 +22,7 @@ import { nextPrescription, applyPrescription, policyFor, defaultIncrement, POLIC
 import { MOBILE, shareExport } from './lib/mobile.js'
 import { DEMO } from './lib/demo.js'
 import { openAssistant } from './components/Assistant.jsx'
+import { useCoachContext } from './lib/coach-context.js'
 
 const S = () => useStore.getState().S
 const update = (...a) => useStore.getState().update(...a)
@@ -284,8 +285,22 @@ function OneRM({ ex }) {
 
 function ExerciseDetail({ ex, close }) {
   const st = useStore(s => s.S)
+  const user = useStore(s => s.user)
   const last = lastEntryFor(st, ex.id)
   const best = bestWeightFor(st, ex.id)
+  // The coach reads THIS exercise while the sheet is open: the sheet sits on top of the
+  // library list, so its context wins and the question arrives with the exercise in
+  // hand — the very thing the user is looking at.
+  useCoachContext('exercise', () => ({
+    title: ex.n,
+    lines: [
+      ex.bp ? t('Muscle group: {0}', t(ex.bp)) : null,
+      ex.eq ? t('Equipment: {0}', t(ex.eq)) : null,
+      ex.tg ? t('Main muscle: {0}', t(ex.tg)) : null,
+      (ex.sm || []).length ? t('Secondary muscles: {0}', ex.sm.map(m => t(m)).join(', ')) : null,
+      ...instrFor(ex).map((step, i) => t('Step {0}: {1}', i + 1, step)),
+    ].filter(Boolean),
+  }))
   return <>
     <h3 className="capitalize">{ex.n}</h3>
     <Media ex={ex} />
@@ -298,6 +313,12 @@ function ExerciseDetail({ ex, close }) {
     {ex.desc && <div className="exnote">{ex.desc}</div>}
     {best > 0 && <div className="small row" style={{ marginBottom: 6, gap: 5 }}><Icon name="trophy" style={{ fontSize: 14, color: 'var(--yellow)' }} />{t('Best:')} <b className="accent">{fmtNum(best)} {st.unit}</b>{last ? ` · ${t('last')} ${fmtDate(last.d)}: ${last.sets.map(s => setLabel(ex.id, s, last.target)).join(', ')}` : ''}</div>}
     <Button variant="primary" icon="plus" style={{ margin: '10px 0 4px' }} onClick={() => addToRoutineSheet(ex)}>{t('Add to my plan')}</Button>
+    {/* The coach opens BEFORE this sheet closes: while the sheet is up, its exercise
+        context is the one on top of the stack, and that is what the coach reads. */}
+    {(user && !DEMO && !MOBILE) && <>
+      <div style={{ height: 8 }} />
+      <Button variant="tinted" icon="sparkles" onClick={() => { openAssistant(); close() }}>{t('Ask the AI coach about this exercise')}</Button>
+    </>}
     {ex.custom && <div className="row" style={{ gap: 8, marginTop: 8 }}>
       <Button icon="pencil" style={{ flex: 1 }} onClick={() => { close(); customExSheet(ex) }}>{t('Edit')}</Button>
       <Button variant="danger" icon="trash" style={{ flex: 1 }} onClick={() => deleteCustomEx(ex, close)}>{t('Delete')}</Button>

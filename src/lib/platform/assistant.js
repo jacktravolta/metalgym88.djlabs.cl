@@ -7,6 +7,12 @@
 // contract shape: the server hands back a conversation_id and every follow-up sends
 // it again — transcripts live server-side only.
 //
+// The request body carries three things: the question, the conversation it belongs to
+// and the heart. A fourth one is OPTIONAL — `context`, the summary of the screen the
+// user opened the coach from ({ view, title, lines[] }, built by lib/coach-context.js).
+// It is only sent when there is one: a question without a screen behind it is a normal
+// question and must not grow an empty context field.
+//
 // PRE-T6 reality: the backend module is packaged (T6), not applied. The live platform
 // legitimately answers 404/501 on /opengym/ai, and offline there is nothing to call at
 // all — the same silent-keep philosophy as gym-data sync. Everything here CLASSIFIES
@@ -73,12 +79,18 @@ function readOperationId(d) {
 
 /* ============================ the call ============================ */
 
-// askAssistant('…', { conversationId }) → one of:
+// askAssistant('…', { conversationId, context }) → one of:
 //   { kind: 'ok', answer, conversationId, balance, operationId, status: null }
 //   { kind: 'not_available' | 'insufficient_credits' | 'auth' | 'error', status, … }
 // Never throws: every failure is a classified kind the UI can speak kindly.
-export async function askAssistant(question, { conversationId = null } = {}) {
-  const body = JSON.stringify({ question, conversation_id: conversationId || null, heart: HEART })
+// `context` is the optional screen summary — sent only when there is one.
+export async function askAssistant(question, { conversationId = null, context = null } = {}) {
+  const body = JSON.stringify({
+    question,
+    conversation_id: conversationId || null,
+    heart: HEART,
+    ...(context ? { context } : {}),
+  })
   let d, status = null
   try {
     d = await phttp(ASSISTANT_PATH, { method: 'POST', body })

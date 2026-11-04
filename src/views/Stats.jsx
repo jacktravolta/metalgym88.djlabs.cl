@@ -17,6 +17,7 @@ import {
   effortHistogram, isHardSet, HARD_RIR
 } from '../lib/effort.js'
 import { Button, Segmented, SelectRow } from '../components/ui.jsx'
+import { useCoachContext } from '../lib/coach-context.js'
 
 // Which muscles the training in a window actually hit — and, the point of the card,
 // which ones it keeps missing. Shading is relative within the window (lib/muscles.js).
@@ -136,6 +137,8 @@ export default function Stats() {
   const [range, setRange] = useState(90)
   const [exId, setExId] = useState(null)
   const [exMetric, setExMetric] = useState('top')
+  // The coach reads the aggregates and the last sessions, exactly as this screen shows them.
+  useCoachContext('stats')
   const now = Date.now()
   const anyEffort = hasEffort(S)
   const kind = displayScale(S)

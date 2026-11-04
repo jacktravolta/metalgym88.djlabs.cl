@@ -20,6 +20,7 @@ import { MOBILE } from '../lib/mobile.js'
 import { t } from '../lib/i18n.js'
 import { askAssistant, fetchAssistantTariff, isOffline } from '../lib/platform/assistant.js'
 import { requestMagicLink } from '../lib/platform/auth.js'
+import { buildCoachPayload } from '../lib/coach-context.js'
 import { openWallet } from './Wallet.jsx'
 import Icon from './Icon.jsx'
 import { Button, TextArea, Row } from './ui.jsx'
@@ -133,7 +134,7 @@ function StateBlock({ kind, onOpenWallet }) {
   </div>
 }
 
-function AssistantPanel({ close }) {
+function AssistantPanel({ close, context }) {
   const balance = useStore(s => s.balance)
   const [msgs, setMsgs] = useState([])       // [{ role, text }] — component state ONLY
   const [input, setInput] = useState('')
@@ -165,7 +166,7 @@ function AssistantPanel({ close }) {
     const q = input.trim()
     if (!q || disabled) return
     setInput(''); setSending(true); setKind(null)
-    const r = await askAssistant(q, { conversationId })
+    const r = await askAssistant(q, { conversationId, context })
     setSending(false)
     if (r.kind === 'ok') {
       // Balance refreshes after EVERY completion — the metered feature says what it cost.
@@ -189,9 +190,15 @@ function AssistantPanel({ close }) {
     <div className="muted small" style={{ marginBottom: 8, lineHeight: 1.5 }}>
       {/* Persona naming is server-driven later (per-heart persona in T6); a generic,
           language-neutral product name for now. */}
-      {'Asistente metalgym88'} · {t('reads your synced training data')}
+      {t('AI assistant of metalgym88')} · {t('reads your synced training data')}
       {balance != null && <> · {t(balance === 1 ? '{0} credit available' : '{0} credits available', balance)}</>}
     </div>
+
+    {/* What the coach is being told about: the screen the user opened it from. One quiet
+        line — the details live in the payload, not on screen. */}
+    {context && context.title && <div className="dim small" style={{ marginBottom: 8 }}>
+      {t('About: {0}', context.title)}
+    </div>}
 
     {offline && <div className="dim small" style={{ marginBottom: 8, lineHeight: 1.5 }}>{OFFLINE_LINE()}</div>}
 
@@ -235,10 +242,15 @@ function AssistantPanel({ close }) {
 
 // Signed-in platform build only: guests, demo and mobile have no platform account.
 // Returns the sheet handle (or null when the panel is not available here).
+//
+// The context is captured HERE, at the moment the coach opens: the screen the user is
+// standing on is read once, and the same snapshot travels with every question of the
+// conversation (so a follow-up still knows what the user was looking at).
 export function openAssistant() {
   if (MOBILE || DEMO) return null
   if (!useStore.getState().user) return null
-  return useUI.getState().openSheet(close => <AssistantPanel close={close} />)
+  const context = buildCoachPayload()
+  return useUI.getState().openSheet(close => <AssistantPanel close={close} context={context} />)
 }
 
 // The Settings entry. Offline the row renders untappable WITH the honest one-liner —

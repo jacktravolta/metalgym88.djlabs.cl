@@ -14,6 +14,7 @@ import Icon from '../components/Icon.jsx'
 import { Button, Check, NumberField } from '../components/ui.jsx'
 import { nextPrescription, applyPrescription } from '../lib/progression.js'
 import { glyphOf } from '../lib/glyphs.js'
+import { useCoachContext } from '../lib/coach-context.js'
 
 /* ---------- start chooser (no active workout) ---------- */
 function StartChooser() {
@@ -301,5 +302,7 @@ function ActiveWorkout() {
 
 export default function Workout() {
   const active = useStore(s => s.S.active)
+  // The coach reads the session in progress: its exercises and how far each got.
+  useCoachContext('workout')
   return active ? <ActiveWorkout /> : <StartChooser />
 }

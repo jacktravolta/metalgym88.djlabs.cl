@@ -10,6 +10,7 @@ import Icon from '../components/Icon.jsx'
 import { Button } from '../components/ui.jsx'
 import { openWallet } from '../components/Wallet.jsx'
 import { openAssistant } from '../components/Assistant.jsx'
+import { useCoachContext } from '../lib/coach-context.js'
 import { glyphOf } from '../lib/glyphs.js'
 
 // Home = what to do now + a quick glance. Deep charts & history live in Stats.
@@ -20,6 +21,9 @@ export default function Home() {
   const isGuest = useStore(s => s.isGuest())
   const balance = useStore(s => s.balance)
   const [weekOffset, setWeekOffset] = useState(0)
+  // What the coach is told about: this screen — today's routine, its exercises, the
+  // streak and the current weight.
+  useCoachContext('home')
   // The platform cards (wallet, assistant) only exist for a signed-in platform
   // account — a guest, a demo build and the mobile build have neither.
   const platformUser = !!user && !isGuest

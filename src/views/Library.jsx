@@ -8,6 +8,7 @@ import { Thumb } from '../components/Media.jsx'
 import { exerciseDetailSheet, addToRoutineSheet, customExSheet } from '../sheets.jsx'
 import Icon from '../components/Icon.jsx'
 import { Button } from '../components/ui.jsx'
+import { useCoachContext, libraryCoachContext } from '../lib/coach-context.js'
 
 export default function Library() {
   const S = useStore(s => s.S)
@@ -21,6 +22,10 @@ export default function Library() {
   // Drop the equipment filter if the search narrowed it away, so you never hit a dead end.
   const eqOn = eqOpts.includes(eq) ? eq : ''
   const f = eqOn ? base.filter(e => e.eq === eqOn) : base
+  // The coach reads the library as it is filtered RIGHT NOW: the filters live in this
+  // view, so they are handed over and the rule of what to say about them stays in
+  // lib/coach-context.js.
+  useCoachContext('library', libraryCoachContext({ q, bp, eq: eqOn, visible: f.length }))
 
   return <>
     <div className="hdr"><div><h1>{t('Exercises')}</h1><div className="sub">{t('{0} exercises with animations', EXDB.length)}</div></div></div>

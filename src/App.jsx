@@ -14,6 +14,7 @@ import ErrorBoundary from './components/ErrorBoundary.jsx'
 import Modals from './components/Modals.jsx'
 import Toast from './components/Toast.jsx'
 import RestTimer from './components/RestTimer.jsx'
+import CoachFab from './components/CoachFab.jsx'
 import Login from './views/Login.jsx'
 import Home from './views/Home.jsx'
 import Plan from './views/Plan.jsx'
@@ -90,6 +91,7 @@ function Shell() {
       <TabBar onStart={startFlow} />
       <RestTimer />
       <Modals />
+      <CoachFab />
       <Toast />
     </>
   )

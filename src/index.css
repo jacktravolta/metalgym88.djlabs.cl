@@ -849,6 +849,24 @@ h4.sec{
 }
 #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
+/* --- floating AI coach ---
+   One button, always in the same corner, so the coach is muscle memory instead of a
+   hunt through Settings. It floats ABOVE the tab bar and BELOW the rest timer, which
+   takes the full width of the bottom of the screen while it runs. */
+#coach-fab{
+  position:fixed;right:14px;bottom:calc(76px + var(--sab));z-index:55;
+  width:52px;height:52px;border-radius:50%;
+  background:var(--acc);color:var(--on-acc);
+  border:none;box-shadow:0 8px 22px -8px color-mix(in srgb,var(--acc) 60%,transparent);
+  display:flex;align-items:center;justify-content:center;
+  font-size:22px;cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+}
+#coach-fab .icn{font-size:23px}
+#coach-fab:active{transform:scale(.94)}
+/* the rest timer owns the bottom of the screen while it counts — the coach steps up */
+body.resting #coach-fab{bottom:calc(160px + var(--sab))}
+
 /* ---------------------------------------------------------------- misc --- */
 .empty{text-align:center;color:var(--label-2);padding:44px 20px;font-size:15px;line-height:1.45}
 .empty .ico{font-size:34px;color:var(--label-2);margin-bottom:12px;display:flex;justify-content:center}
@@ -973,6 +991,12 @@ h4.sec{
   #timer.rest{flex-direction:row;align-items:center;gap:14px}
   #timer.rest .head{flex:1;min-width:0}
   #toast{left:calc(50% + 124px)}
+  /* The coach button hugs the RIGHT EDGE OF THE CONTENT COLUMN, not of the window:
+     #app starts after the 248px rail and is 1080px wide, so its right edge sits at
+     248 + 1080 = 1328px — and at the window edge on narrower desktops, where the
+     column simply fills the space. max() covers both: 14px from the window while the
+     column is narrower than 1080, and 14px inside the column once it is full width. */
+  #coach-fab{left:auto;right:max(14px,calc(100% - 1314px));bottom:24px}
   .sheet{left:calc(50% + 124px);right:auto;margin-left:-320px;width:640px;border-radius:var(--r-xl) var(--r-xl) 0 0}
   .center{left:calc(50% + 124px);width:340px}
 
