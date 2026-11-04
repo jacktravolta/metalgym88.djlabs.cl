@@ -23,9 +23,10 @@ import { requestMagicLink } from '../lib/platform/auth.js'
 import { phttp } from '../lib/platform/http.js'
 import '../landing.css'
 
-/* The WhatsApp number of the metalgym88 line. Empty until the owner confirms
-   it; while it is empty the button is not rendered (never a broken link). */
-export const WHATSAPP_NUMBER = ''
+/* The WhatsApp number of the metalgym88 line (owner-confirmed on 2026-11-04).
+   The link strips everything that is not a digit, so the format here is only
+   for the humans reading the code. */
+export const WHATSAPP_NUMBER = '+56 9 8806 8917'
 
 const SHOWCASE = [
   { id: '0025', caption: 'Press banca con barra' },
