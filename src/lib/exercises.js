@@ -1,7 +1,12 @@
-import { EXDB } from './exercises-data.js'
+import { EXDB as RAW_EXDB } from './exercises-data.js'
+import { translateExerciseName } from './exercises-names.es.js'
 import { t } from './i18n.js'
 
-export { EXDB }
+// The catalogue arrives with 1.324 names in English. The product is Spanish, so
+// the name a person reads must be Spanish too — and the SAME name everywhere:
+// the library, the exercise sheet, the routine, the synced document and the
+// context the coach receives.
+export const EXDB = RAW_EXDB.map(e => ({ ...e, n: translateExerciseName(e.n) }))
 export const EXIDX = {}
 EXDB.forEach(e => { EXIDX[e.id] = e })
 export const BODYPARTS = [...new Set(EXDB.map(e => e.bp))].sort()

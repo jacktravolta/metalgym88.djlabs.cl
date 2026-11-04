@@ -122,7 +122,7 @@ describe('the per-view builders', () => {
     const out = VIEW_BUILDERS.home()
     expect(out.title).toBeTruthy()
     expect(out.lines.join(' | ')).toContain('Push')
-    expect(out.lines.join(' | ')).toContain('3/4 sit-up')
+    expect(out.lines.join(' | ')).toContain('Abdominal 3/4')
   })
 
   it('plan: the routines and what each day of the week holds', () => {
@@ -142,7 +142,7 @@ describe('the per-view builders', () => {
     store.S.active = activeSession()
     const out = VIEW_BUILDERS.workout()
     expect(out.title).toBeTruthy()
-    expect(out.lines.join(' | ')).toContain('3/4 sit-up')
+    expect(out.lines.join(' | ')).toContain('Abdominal 3/4')
     expect(out.lines.join(' | ')).toContain('2')
   })
 
