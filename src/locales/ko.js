@@ -554,4 +554,15 @@ export default {
   '{0} sets of {1} — time to add weight or move to a harder variation.': '{1}회 {0}세트 — 이제 무게를 올리거나 더 어려운 동작으로 넘어가세요.',
   '{0} per side': '한쪽당 {0}회',
   'You still log the total: {0} is {1} per side.': '기록은 그대로 합계로 합니다: {0}회는 한쪽당 {1}회입니다.',
+  // --- platform panel (metalgym88) ---
+  'Training plans, an exercise library and body-weight tracking — all inside metalgym88.': 'Training plans, an exercise library and body-weight tracking — all inside metalgym88.',
+  'Start training': 'Start training',
+  'View exercises': 'View exercises',
+  'Your wallet': 'Your wallet',
+  'See my wallet': 'See my wallet',
+  'Assistant': 'Assistant',
+  'Open the assistant': 'Open the assistant',
+  'Ask about your training, plan or progress': 'Ask about your training, plan or progress',
+  '{0} credits available for the assistant — your plan and history stay free.': '{0} credits available for the assistant — your plan and history stay free.',
+  'Credits pay for the assistant. Your plan and history stay free.': 'Credits pay for the assistant. Your plan and history stay free.',
 }

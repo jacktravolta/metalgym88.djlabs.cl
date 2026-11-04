@@ -554,4 +554,15 @@ export default {
   '{0} sets of {1} — time to add weight or move to a harder variation.': '{0} serie da {1} — è ora di aggiungere peso o passare a una variante più difficile.',
   '{0} per side': '{0} per lato',
   'You still log the total: {0} is {1} per side.': 'Registri sempre il totale: {0} sono {1} per lato.',
+  // --- platform panel (metalgym88) ---
+  'Training plans, an exercise library and body-weight tracking — all inside metalgym88.': 'Training plans, an exercise library and body-weight tracking — all inside metalgym88.',
+  'Start training': 'Start training',
+  'View exercises': 'View exercises',
+  'Your wallet': 'Your wallet',
+  'See my wallet': 'See my wallet',
+  'Assistant': 'Assistant',
+  'Open the assistant': 'Open the assistant',
+  'Ask about your training, plan or progress': 'Ask about your training, plan or progress',
+  '{0} credits available for the assistant — your plan and history stay free.': '{0} credits available for the assistant — your plan and history stay free.',
+  'Credits pay for the assistant. Your plan and history stay free.': 'Credits pay for the assistant. Your plan and history stay free.',
 }

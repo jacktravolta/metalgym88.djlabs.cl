@@ -205,6 +205,20 @@ h4.sec{
 }
 .card .big{font-size:30px;font-weight:600;letter-spacing:-.026em;line-height:1.1}
 
+/* Platform panel card — the platform pattern (thin border, large radius, quiet
+   title + copy, brand CTA) in the app's own black-and-green language. Its own
+   class on purpose: the global `.card h2` belongs to the other cards and must
+   not change. No shadows — this language draws cards with a hairline. */
+.pcard{
+  background:var(--surface);border:1px solid var(--sep);border-radius:var(--r-lg);
+  padding:20px;margin-bottom:12px;
+  display:flex;flex-direction:column;gap:12px;
+}
+.pcard h2{font-size:16px;font-weight:600;letter-spacing:-.012em;color:var(--label);margin:0}
+.pcard p{font-size:13px;line-height:1.5;color:var(--label-2);margin:0}
+.pcard-txt{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+.pcard-cta{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+
 /* ------------------------------------------------------ inset group list -- */
 .sect{margin-bottom:22px}
 .sect-t{
@@ -921,6 +935,8 @@ h4.sec{
   .narrow{max-width:640px;margin:0 auto}
   .tiles{grid-template-columns:repeat(4,1fr)}
   .cols .tiles{grid-template-columns:1fr 1fr}
+  /* the panel card turns into a row: title + copy on the left, CTA on the right */
+  .pcard{flex-direction:row;align-items:center;gap:24px}
 
   /* --- the rail: the bottom bar turned on its side --- */
   #tabbar{

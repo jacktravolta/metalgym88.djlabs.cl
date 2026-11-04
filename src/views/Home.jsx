@@ -8,6 +8,8 @@ import { bwSheet, goalSheet, dayOverrideSheet, calendarSheet, startFlow, loadSta
 import LineChart from '../components/LineChart.jsx'
 import Icon from '../components/Icon.jsx'
 import { Button } from '../components/ui.jsx'
+import { openWallet } from '../components/Wallet.jsx'
+import { openAssistant } from '../components/Assistant.jsx'
 import { glyphOf } from '../lib/glyphs.js'
 
 // Home = what to do now + a quick glance. Deep charts & history live in Stats.
@@ -15,7 +17,12 @@ export default function Home() {
   const nav = useNavigate()
   const S = useStore(s => s.S)
   const user = useStore(s => s.user)
+  const isGuest = useStore(s => s.isGuest())
+  const balance = useStore(s => s.balance)
   const [weekOffset, setWeekOffset] = useState(0)
+  // The platform cards (wallet, assistant) only exist for a signed-in platform
+  // account — a guest, a demo build and the mobile build have neither.
+  const platformUser = !!user && !isGuest
 
   const today = new Date()
   const routine = effectiveRoutine(S, todayISO())
@@ -49,6 +56,18 @@ export default function Home() {
     <div className="hdr">
       <div><h1>{user ? t('Hi {0}', user.name) : 'openGym'}</h1><div className="sub">{today.toLocaleDateString(dateLocale(), { weekday: 'long', day: 'numeric', month: 'long' })}</div></div>
       <button className="iconbtn" onClick={() => nav('/settings')} aria-label={t('Settings')}><Icon name="gear" /></button>
+    </div>
+
+    {/* ---------- the product, in the panel's own card ---------- */}
+    <div className="pcard">
+      <div className="pcard-txt">
+        <h2>openGym</h2>
+        <p>{t('Training plans, an exercise library and body-weight tracking — all inside metalgym88.')}</p>
+      </div>
+      <div className="pcard-cta">
+        <Button variant="primary" size="sm" onClick={() => nav('/plan')}>{t('Start training')}</Button>
+        <Button size="sm" onClick={() => nav('/library')}>{t('View exercises')}</Button>
+      </div>
     </div>
 
     <div className="card">
@@ -128,5 +147,29 @@ export default function Home() {
         <Icon name="calendar" className="chev" style={{ fontSize: 20 }} />
       </div>
     </div>
+
+    {/* ---------- platform panel: wallet and assistant ---------- */}
+    {platformUser && <>
+      <div className="pcard">
+        <div className="pcard-txt">
+          <h2>{t('Your wallet')}</h2>
+          <p>{balance != null
+            ? t('{0} credits available for the assistant — your plan and history stay free.', fmtNum(balance))
+            : t('Credits pay for the assistant. Your plan and history stay free.')}</p>
+        </div>
+        <div className="pcard-cta">
+          <Button variant="primary" size="sm" onClick={openWallet}>{t('See my wallet')}</Button>
+        </div>
+      </div>
+      <div className="pcard">
+        <div className="pcard-txt">
+          <h2>{t('Assistant')}</h2>
+          <p>{t('Ask about your training, plan or progress')}</p>
+        </div>
+        <div className="pcard-cta">
+          <Button variant="primary" size="sm" onClick={openAssistant}>{t('Open the assistant')}</Button>
+        </div>
+      </div>
+    </>}
   </div>
 }
