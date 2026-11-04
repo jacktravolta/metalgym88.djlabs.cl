@@ -1,11 +1,13 @@
 {
-  "name": "openGym",
-  "short_name": "openGym",
-  "description": "Personal gym & body weight tracker",
+  "name": "metalgym88 — Entrenamiento y peso corporal",
+  "short_name": "metalgym88",
+  "description": "Entrena a tu ritmo: registra tus entrenamientos, pesos y progreso en un solo lugar.",
+  "lang": "es",
+  "dir": "ltr",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "orientation": "portrait",
+  "orientation": "any",
   "background_color": "#0c0e12",
   "theme_color": "#0c0e12",
   "icons": [
