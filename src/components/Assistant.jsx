@@ -73,7 +73,9 @@ function ReverifyBlock() {
   const resend = async () => {
     if (busy || !email) return
     setBusy(true); setErr(null)
-    try { await requestMagicLink(email); setSent(true) }
+    // The account already accepted the Terms at registration: re-sending the
+    // link repeats that consent, it does not create a new one.
+    try { await requestMagicLink(email, { terms: true }); setSent(true) }
     catch (e) { setErr(e.message || t('Could not send the link')) }
     setBusy(false)
   }

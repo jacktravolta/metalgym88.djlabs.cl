@@ -52,13 +52,23 @@ export function login(email, password) {
     .then(adopt)
 }
 
-export function requestMagicLink(email) {
-  return call('/auth/magic-link', { method: 'POST', body: JSON.stringify(withHeart({ email })) })
+// The platform asks for the Terms & Conditions acceptance on the magic-link
+// request and on the registration, and refuses the call without it (400
+// 'Para continuar necesitas aceptar los Términos y Condiciones.'). The consent
+// is collected in the form — a required checkbox — and travels in the body.
+// When nobody collected it, the flag stays absent: the front never consents on
+// the user's behalf, and the platform says no.
+export function requestMagicLink(email, opts = {}) {
+  const body = withHeart({ email })
+  if (opts.terms) body.terms_accepted = true
+  return call('/auth/magic-link', { method: 'POST', body: JSON.stringify(body) })
 }
 
 // Registration routes the platform's welcome credit to the metalgym88 wallet via heart.
-export function register(email, name) {
-  return call('/auth/register', { method: 'POST', body: JSON.stringify(withHeart({ email, name })) })
+export function register(email, name, opts = {}) {
+  const body = withHeart({ email, name })
+  if (opts.terms) body.terms_accepted = true
+  return call('/auth/register', { method: 'POST', body: JSON.stringify(body) })
     .then(adopt)
 }
 

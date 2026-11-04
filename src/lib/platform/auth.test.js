@@ -88,6 +88,31 @@ describe('register / magic link', () => {
     expect(m.seen[0].url).toBe(BASE + '/auth/magic-link')
     expect(JSON.parse(m.seen[0].opts.body)).toEqual({ email: 'a@b.c', heart: 'metalgym88' })
   })
+
+  it('register carries the terms acceptance the platform demands', async () => {
+    // The platform refuses both calls without terms_accepted (400 'Para continuar
+    // necesitas aceptar los Términos y Condiciones.'), so the consent collected
+    // in the form has to travel in the body.
+    const m = mockFetch([res(200, { user: { id: 'u2' } })])
+    vi.stubGlobal('fetch', m.impl)
+    await register('a@b.c', 'Bo', { terms: true })
+    const body = JSON.parse(m.seen[0].opts.body)
+    expect(body).toEqual({ email: 'a@b.c', name: 'Bo', heart: 'metalgym88', terms_accepted: true })
+  })
+
+  it('requestMagicLink carries the terms acceptance too', async () => {
+    const m = mockFetch([res(200, { ok: true })])
+    vi.stubGlobal('fetch', m.impl)
+    await requestMagicLink('a@b.c', { terms: true })
+    expect(JSON.parse(m.seen[0].opts.body)).toEqual({ email: 'a@b.c', heart: 'metalgym88', terms_accepted: true })
+  })
+
+  it('never consents on the user\'s behalf: without a collected acceptance the flag is absent', async () => {
+    const m = mockFetch([res(200, { ok: true })])
+    vi.stubGlobal('fetch', m.impl)
+    await requestMagicLink('a@b.c')
+    expect(JSON.parse(m.seen[0].opts.body).terms_accepted).toBeUndefined()
+  })
 })
 
 describe('me', () => {

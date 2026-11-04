@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useStore, hasData } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import { login, register, requestMagicLink, EMAIL_REVERIFY_REQUIRED } from '../lib/platform/auth.js'
+import { apiUrl } from '../lib/platform/config.js'
 import { t } from '../lib/i18n.js'
 import { Button } from './ui.jsx'
 
@@ -65,8 +66,28 @@ function PasswordForm({ onOk, onVerify, toMagic, toRegister }) {
   )
 }
 
+// The Terms & Conditions consent. The platform refuses the registration and the
+// magic-link request without it, and it is the user's consent to record: the
+// checkbox is required, and the form sends the acceptance only when it is
+// checked. The text itself lives on the platform, next to the other legal pages.
+function TermsConsent({ checked, onChange }) {
+  return (
+    <label className="dim small" style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer' }}>
+      <input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)}
+        style={{ marginTop: 2, flexShrink: 0 }} />
+      <span>
+        {t('I accept the Terms and Conditions')} ·{' '}
+        <a href={apiUrl('/terminos')} target="_blank" rel="noreferrer" style={{ textDecoration: 'underline' }}>
+          {t('Read them')}
+        </a>
+      </span>
+    </label>
+  )
+}
+
 function MagicLinkForm({ back }) {
   const [email, setEmail] = useState('')
+  const [terms, setTerms] = useState(false)
   const [busy, setBusy] = useState(false)
   const [sent, setSent] = useState(false)
   const [err, setErr] = useState(null)
@@ -75,8 +96,9 @@ function MagicLinkForm({ back }) {
   const go = async ev => {
     ev.preventDefault()
     if (busy || !email.trim()) { if (!email.trim()) setErr(t('Enter your email')); return }
+    if (!terms) { setErr(t('Please accept the Terms and Conditions to continue')); return }
     setBusy(true); setErr(null)
-    try { await requestMagicLink(email.trim()); setSent(true) }
+    try { await requestMagicLink(email.trim(), { terms }); setSent(true) }
     catch (e) { setErr(e.message || t('Could not send the link')) }
     setBusy(false)
   }
@@ -91,6 +113,7 @@ function MagicLinkForm({ back }) {
       <div className="muted small">{t('No password needed — we email you a one-tap sign-in link.')}</div>
       <input ref={ref} className="input" type="email" autoComplete="email" placeholder={t('Email')}
         value={email} onChange={e => setEmail(e.target.value)} />
+      <TermsConsent checked={terms} onChange={setTerms} />
       {err && <div className="dim small">{err}</div>}
       <Button variant="primary" type="submit" disabled={busy}>{busy ? t('Sending…') : t('Send the link')}</Button>
       <Button variant="ghost" onClick={back}>{t('Back')}</Button>
@@ -101,6 +124,7 @@ function MagicLinkForm({ back }) {
 function RegisterForm({ onOk, onVerify, toSignin }) {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
+  const [terms, setTerms] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
   const ref = useRef(null)
@@ -110,9 +134,10 @@ function RegisterForm({ onOk, onVerify, toSignin }) {
     if (busy) return
     const n = name.trim()
     if (!n || !email.trim()) { setErr(t('Enter your name and email')); return }
+    if (!terms) { setErr(t('Please accept the Terms and Conditions to continue')); return }
     setBusy(true); setErr(null)
     try {
-      const { user } = await register(email.trim(), n)
+      const { user } = await register(email.trim(), n, { terms })
       useStore.getState().setUser(user)
       await afterIn(onOk, 'Welcome, {0}')
     } catch (e) {
@@ -127,6 +152,7 @@ function RegisterForm({ onOk, onVerify, toSignin }) {
       <div className="muted small" style={{ margin: 0 }}>{t('Works across the djlabs apps — your data is kept separate per product, and a welcome balance of credits is added here.')}</div>
       <input ref={ref} className="input" placeholder={t('Your name')} maxLength={40} value={name} onChange={e => setName(e.target.value)} />
       <input className="input" type="email" autoComplete="email" placeholder={t('Email')} value={email} onChange={e => setEmail(e.target.value)} />
+      <TermsConsent checked={terms} onChange={setTerms} />
       {err && <div className="dim small">{err}</div>}
       <Button variant="primary" type="submit" disabled={busy}>{busy ? t('Creating…') : t('Create account')}</Button>
       <Button variant="ghost" onClick={toSignin}>{t('I already have an account')}</Button>
@@ -143,7 +169,9 @@ function ReverifyPause({ email, back }) {
   const resend = async () => {
     if (busy) return
     setBusy(true); setErr(null)
-    try { await requestMagicLink(email); setSent(true) }
+    // The account already accepted the Terms at registration: re-sending the
+    // link only repeats that consent, it does not create a new one.
+    try { await requestMagicLink(email, { terms: true }); setSent(true) }
     catch (e) { setErr(e.message || t('Could not send the link')) }
     setBusy(false)
   }
