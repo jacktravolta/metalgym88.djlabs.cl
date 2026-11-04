@@ -5,6 +5,8 @@ import { effectiveRoutine } from '../lib/history.js'
 import { todayISO } from '../lib/format.js'
 import { t } from '../lib/i18n.js'
 import Icon from './Icon.jsx'
+import ThemeToggle from './ThemeToggle.jsx'
+import CreditsChip from './CreditsChip.jsx'
 
 // The rail (desktop) carries its own History and Settings entries; the phone bar
 // doesn't. Which entry is lit depends on the layout, so the viewport decides —
@@ -60,7 +62,13 @@ export default function TabBar({ onStart }) {
       <div className="rail-brand">
         <img className="rail-logo" src="/logo.jpg" alt="" width={24} height={24} />
         <span>metalgym88</span>
+        {/* Desktop chrome only — the phone bar keeps its five items exactly.
+            It sits inside the brand row, which the phone layout hides. */}
+        <ThemeToggle className="rail-only" />
       </div>
+      {/* The credit balance, always visible: on the rail it sits under the
+          brand, on the phone it is the last item of the bottom bar. */}
+      <div className="rail-credits"><CreditsChip /></div>
       <Tab k="home" icon="house" to="/home" label={t('Home')} />
       <Tab k="plan" icon="calendar" to="/plan" label={t('Plan')} />
       <button className={'start' + (S.active ? ' rec' : '')} onClick={startWorkout}>
@@ -71,6 +79,7 @@ export default function TabBar({ onStart }) {
       <Tab k="library" icon="list" to="/library" label={t('Exercises')} />
       <Tab className="rail-only rail-end" k="history" icon="history" to="/history" label={t('History')} />
       <Tab className="rail-only" k="settings" icon="gear" to="/settings" label={t('Settings')} />
+      <CreditsChip className="phone-credits" />
     </nav>
   )
 }

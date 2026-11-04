@@ -22,6 +22,21 @@
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icon-180.png">
 <link rel="icon" type="image/png" href="/icon-180.png">
+<script>
+  // The saved theme, applied BEFORE the first paint: the landing and the app then
+  // both come up in the right light, with no flash of the wrong one. A missing,
+  // empty or unreadable stored state simply means the default dark theme.
+  (function () {
+    var theme = 'dark';
+    try {
+      var state = JSON.parse(localStorage.getItem('gym_state_v1') || '{}');
+      if (state && state.theme === 'light') theme = 'light';
+    } catch (e) { theme = 'dark'; }
+    document.documentElement.setAttribute('data-theme', theme);
+    var meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', theme === 'light' ? '#f2f2f7' : '#000000');
+  })();
+</script>
 </head>
 <body>
 <div id="root"></div>

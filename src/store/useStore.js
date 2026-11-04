@@ -7,8 +7,11 @@ import { localTZ } from '../lib/format.js'
 import { registerCustom } from '../lib/exercises.js'
 import { DEMO, DEMO_SEEDED } from '../lib/demo.js'
 import { MOBILE, nativeLoad, nativeSave, syncReminder } from '../lib/mobile.js'
+import { STATE_KEY } from '../lib/theme.js'
 
-const KEY = 'gym_state_v1'
+// The one entry that holds the whole app state. The key lives in lib/theme.js
+// because the landing has to read and write the theme inside it too.
+const KEY = STATE_KEY
 export const DEF = {
   unit: 'kg', restSec: 90, sound: true, keepAwake: true, lang: 'es',
   theme: 'dark', accent: 'lime', body: 'male', targetW: null,

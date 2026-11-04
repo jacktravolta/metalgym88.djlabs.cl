@@ -21,6 +21,8 @@ import { EXIDX, gifSrc } from '../lib/exercises.js'
 import { apiUrl } from '../lib/platform/config.js'
 import { requestMagicLink, me as platformMe } from '../lib/platform/auth.js'
 import { phttp } from '../lib/platform/http.js'
+import { t } from '../lib/i18n.js'
+import { readStoredTheme, saveStoredTheme, applyTheme } from '../lib/theme.js'
 import { useStore } from '../store/useStore.js'
 import '../landing.css'
 
@@ -294,6 +296,30 @@ function ContactCard() {
 
 /* ---------------------------------------------------------------- landing -- */
 
+// The landing's own day/night switch.
+//
+// The landing is served on its own, before the app boots, so it cannot lean on
+// the app shell to apply the theme: it reads the saved preference, applies it to
+// <html> right away and writes the choice back into the SAME stored state the
+// app uses — changing the theme and nothing else, so the training log on that
+// device is never touched.
+function LandingThemeToggle() {
+  const [theme, setTheme] = useState(() => readStoredTheme() || 'dark')
+  const light = theme === 'light'
+  const label = light ? t('Dark theme') : t('Light theme')
+  const flip = () => {
+    const next = light ? 'dark' : 'light'
+    setTheme(next)
+    applyTheme(next)
+    saveStoredTheme(next)
+  }
+  return (
+    <button className="lg-theme" onClick={flip} aria-label={label} title={label}>
+      <Icon name={light ? 'moon' : 'sun'} />
+    </button>
+  )
+}
+
 export default function Landing() {
   // The landing owns the whole viewport: the desktop rail offset is undone.
   useEffect(() => {
@@ -340,6 +366,7 @@ export default function Landing() {
             <a href="#contacto">Contacto</a>
           </nav>
           <div className="lg-head-cta">
+            <LandingThemeToggle />
             {loggedIn ? (
               <a className="lg-btn ghost" href="/#/home">Entrar al panel</a>
             ) : (

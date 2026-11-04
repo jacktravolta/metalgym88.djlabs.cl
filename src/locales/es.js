@@ -275,6 +275,11 @@ export default {
   'Theme': 'Tema',
   'Dark': 'Oscuro',
   'Light': 'Claro',
+  // The theme toggle labels: the English source string is the i18n key, like
+  // every other string in this file, so the other locale packs can translate
+  // them too.
+  'Light theme': 'Tema claro',
+  'Dark theme': 'Tema oscuro',
   'Accent color': 'Color de acento',
   'General': 'General',
   'During a workout': 'Durante el entrenamiento',

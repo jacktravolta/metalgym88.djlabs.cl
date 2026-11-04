@@ -341,6 +341,38 @@ h4.sec{
    so the rounded clip only trims the black corners. */
 #tabbar .rail-brand .rail-logo{width:24px;height:24px;flex:none;display:block;border-radius:50%;object-fit:cover}
 #tabbar button.rail-only{display:none}
+/* The theme switch on the rail: a round button at the right end of the brand
+   line, so the day/night switch is one tap away on every desktop screen. It
+   lives INSIDE the brand row, which the phone layout hides — so the phone bar
+   keeps its five items exactly. The desktop #tabbar button rule would stretch
+   it to a full-width row, so the round shape is restored here. */
+#tabbar .rail-brand button.rail-only{
+  width:36px;height:36px;padding:0;margin-left:auto;border-radius:50%;
+  flex-direction:row;align-items:center;justify-content:center;gap:0;
+  color:var(--label);font-size:18px;
+}
+#tabbar .rail-brand button.rail-only .icn{font-size:18px}
+
+/* The credit balance, always on screen.
+   The coach spends credits, so the balance belongs to the app's own chrome:
+   on the desktop rail it sits under the brand, on the phone it is the last
+   item of the bottom bar. It is a number, not a tab, so it keeps its own size
+   instead of taking a share of the row. */
+.credits-chip{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:6px 10px;border:none;border-radius:999px;
+  background:var(--acc-soft);color:var(--acc);
+  font-size:13px;font-weight:600;letter-spacing:-.01em;white-space:nowrap;
+  cursor:pointer;transition:transform var(--fast) var(--ease);
+}
+.credits-chip:active{transform:scale(.95)}
+.credits-chip .icn{font-size:16px;color:inherit}
+.credits-chip .credits-num{font-variant-numeric:tabular-nums}
+/* On the phone the chip closes the bar: the tabs share what is left of it. */
+#tabbar .credits-chip{flex:0 0 auto;margin-left:4px;padding:6px 9px;font-size:12px}
+#tabbar .credits-chip .icn{font-size:15px;color:inherit}
+/* The rail's own copy lives under the brand; the phone's lives in the bar. */
+#tabbar .rail-credits{display:none}
 
 /* ------------------------------------------------------------ week strip -- */
 .week{display:flex;justify-content:space-between;gap:4px}
@@ -983,6 +1015,12 @@ body.resting #coach-fab{bottom:calc(200px + var(--sab))}
   #tabbar button.start .cir{width:40px;height:40px}
   #tabbar button.start .cir .icn{font-size:21px}
   #tabbar .rail-brand{display:flex;align-items:center;gap:9px}
+  /* The balance lives under the brand on the rail, so it is on every desktop
+     screen; the phone's copy at the end of the bar steps aside. */
+  #tabbar .rail-credits{display:flex;padding:0 0 14px}
+  #tabbar .rail-credits:empty{display:none}
+  #tabbar .credits-chip.phone-credits{display:none}
+  #tabbar .rail-credits .credits-chip{width:auto;justify-content:flex-start}
   #tabbar button.rail-only{display:flex}
   /* History + Settings sit at the foot of the rail */
   #tabbar button.rail-end{margin-top:auto}

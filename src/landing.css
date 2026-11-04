@@ -43,6 +43,16 @@ body.is-landing{padding-left:0 !important}
   .lg-nav{display:flex}
   .lg-head-cta{margin-left:0}
 }
+/* The day/night switch: the same round button the app uses, drawn with the
+   landing's own surfaces so it reads as part of this page. */
+.lg-theme{
+  width:36px;height:36px;border-radius:50%;flex:none;
+  background:var(--surface);color:var(--label);
+  display:flex;align-items:center;justify-content:center;font-size:18px;
+  transition:background var(--fast),transform var(--fast);
+}
+.lg-theme:active{background:var(--surface-2);transform:scale(.92)}
+.lg-theme .icn{font-size:19px}
 
 /* ----------------------------------------------------------------- hero -- */
 .lg-hero{padding:56px 0 72px;display:grid;gap:36px;align-items:center}
@@ -220,3 +230,17 @@ body.is-landing{padding-left:0 !important}
 }
 .lg-wsp-float .icn{font-size:26px;color:#25d366}
 @media (min-width:900px){.lg-wsp-float{display:none}}
+
+/* --------------------------------------------------------------- light --
+   The landing inherits the app's surfaces, so the light theme mostly comes for
+   free — but two things were tuned for a black page: the drop shadows read as
+   smudges on a white one, and the accent glow has to be gentler on a light
+   surface to stay a glow and not a stain. */
+:root[data-theme="light"] .landing{
+  background:
+    radial-gradient(880px 420px at 76% -10%, color-mix(in srgb,var(--acc) 10%,transparent), transparent 70%),
+    radial-gradient(700px 360px at 4% 2%, color-mix(in srgb,var(--acc) 6%,transparent), transparent 72%),
+    var(--bg);
+}
+:root[data-theme="light"] .lg-show{box-shadow:0 24px 60px -34px rgba(0,0,0,.35)}
+:root[data-theme="light"] .lg-wsp-float{box-shadow:0 12px 30px -12px rgba(0,0,0,.30)}
