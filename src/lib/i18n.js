@@ -20,7 +20,10 @@ const DATE_LOCALES = {
 const localePacks = import.meta.glob('../locales/*.js')
 const instrPacks = import.meta.glob('../instr/*.js')
 
-let lang = 'en'
+// Spanish is the default language: the source strings are English, but a new
+// install starts in Spanish (the es pack loads right after boot, so the very
+// first paint is the only moment where the English source can show through).
+let lang = 'es'
 let dict = {}
 let instr = null            // { exId: [steps] } for the current language, null = English
 let version = 0
