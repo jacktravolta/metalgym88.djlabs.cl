@@ -27,7 +27,9 @@ const looksReverify = e =>
 
 // Wraps phttp so both transport errors and platform-coded bodies map to the pause state
 // consistently, whichever way the server chooses to signal it.
-async function call(path, opts) {
+// Exported: the magic-link landing (lib/platform/landing.js) redeems a token
+// through the same transport and must not grow a second error mapping.
+export async function platformCall(path, opts = {}) {
   try {
     const data = await phttp(path, opts)
     if (data && typeof data.code === 'string' && data.code.includes(EMAIL_REVERIFY_REQUIRED)) {
@@ -41,14 +43,16 @@ async function call(path, opts) {
 }
 
 // Remember the access token the session hands out (kept in http.js's memory only).
-function adopt(data) {
+// Exported for the magic-link landing: the token it redeems is adopted exactly
+// like the one a password sign-in hands over.
+export function adopt(data) {
   const token = data && (data.token || data.access_token)
   if (token) setAccessToken(token)
   return data
 }
 
 export function login(email, password) {
-  return call('/auth/login', { method: 'POST', body: JSON.stringify(withHeart({ email, password })) })
+  return platformCall('/auth/login', { method: 'POST', body: JSON.stringify(withHeart({ email, password })) })
     .then(adopt)
 }
 
@@ -61,19 +65,19 @@ export function login(email, password) {
 export function requestMagicLink(email, opts = {}) {
   const body = withHeart({ email })
   if (opts.terms) body.terms_accepted = true
-  return call('/auth/magic-link', { method: 'POST', body: JSON.stringify(body) })
+  return platformCall('/auth/magic-link', { method: 'POST', body: JSON.stringify(body) })
 }
 
 // Registration routes the platform's welcome credit to the metalgym88 wallet via heart.
 export function register(email, name, opts = {}) {
   const body = withHeart({ email, name })
   if (opts.terms) body.terms_accepted = true
-  return call('/auth/register', { method: 'POST', body: JSON.stringify(body) })
+  return platformCall('/auth/register', { method: 'POST', body: JSON.stringify(body) })
     .then(adopt)
 }
 
 export async function me() {
-  const data = await call(withHeartQuery('/auth/me'), {})
+  const data = await platformCall(withHeartQuery('/auth/me'), {})
   const user = data.user || (data.id ? data : null)
   const balance = typeof data.balance === 'number'
     ? data.balance
@@ -83,7 +87,7 @@ export async function me() {
 
 export async function logout() {
   try {
-    await call('/auth/logout', { method: 'POST', body: '{}' })
+    await platformCall('/auth/logout', { method: 'POST', body: '{}' })
   } finally {
     clearAccessToken()
   }
