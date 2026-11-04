@@ -69,10 +69,14 @@ function platformError(r, data) {
 
 export async function phttp(path, opts = {}) {
   const url = apiUrl(path)
+  // A multipart body carries its own content type: the browser sets it WITH the
+  // boundary, so setting it by hand would produce a body the server cannot read
+  // (and the JSON default would silently break every upload).
+  const isForm = typeof FormData !== 'undefined' && opts.body instanceof FormData
   const call = token => fetch(url, Object.assign({
     credentials: 'include',
     headers: Object.assign(
-      { 'Content-Type': 'application/json' },
+      isForm ? {} : { 'Content-Type': 'application/json' },
       token ? { Authorization: 'Bearer ' + token } : {},
       // Caller headers (e.g. the payments Idempotency-Key) ride ALONGSIDE the base
       // ones — replacing wholesale would silently drop the auth token.

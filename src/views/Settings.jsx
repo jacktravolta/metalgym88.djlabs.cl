@@ -13,6 +13,8 @@ import { DEMO, REPO } from '../lib/demo.js'
 import { MOBILE, shareExport, syncReminder } from '../lib/mobile.js'
 import { openWallet } from '../components/Wallet.jsx'
 import { AssistantRow } from '../components/Assistant.jsx'
+import Avatar from '../components/Avatar.jsx'
+import { updateProfile, fetchNotificationPrefs, updateNotificationPrefs, isChannelEnabled, canUseWhatsApp } from '../lib/platform/profile.js'
 import { loadStarterPlan, confirmSheet, importFromApp } from '../sheets.jsx'
 import Icon from '../components/Icon.jsx'
 import { Section, Row, SelectRow, Switch, Segmented, Button, TextField } from '../components/ui.jsx'
@@ -103,6 +105,14 @@ export default function Settings() {
       </>}
     </Section>
     {!user && !DEMO && !MOBILE && <p className="sect-f" style={{ marginTop: -18, marginBottom: 22 }}>{t('Guest mode — data lives only in this browser.')}</p>}
+
+    {/* ---------- the platform account: who you are and how it reaches you ----------
+        Signed-in people only: the demo and the mobile build have no platform
+        account to talk to (same rule the wallet and the assistant follow). */}
+    {user && !DEMO && !MOBILE && <>
+      <ProfileCard user={user} setUser={setUser} toast={toast} />
+      <AccountAlertsCard user={user} toast={toast} />
+    </>}
 
     {/* ---------- general ---------- */}
     <Section title={t('General')} footer={t('Note: switching units only changes the label — logged numbers are not converted.')}>
@@ -331,5 +341,157 @@ function PushCard({ S, update, toast }) {
     </Section>
     {on && <div style={{ marginTop: -12, marginBottom: 22 }}><Button size="sm" icon="bell" onClick={test}>{t('Send test notification')}</Button></div>}
   </>
+}
+
+/* ============================ the platform account ============================ */
+
+// Who the person is on the platform: the name, the email the account was
+// created with and the phone used for WhatsApp alerts.
+//
+// The email is READ-ONLY on purpose — the platform does not change it from
+// here, and pretending otherwise would only send people to a dead end. The
+// phone is optional: leaving it empty removes the stored number.
+function ProfileCard({ user, setUser, toast }) {
+  const [name, setName] = useState(user.name || '')
+  const [phone, setPhone] = useState(user.phone || '')
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState(null)
+  const [avatarVersion, setAvatarVersion] = useState(0)
+
+  // The photo: the server is the source of truth, so what it answered (the
+  // path, or nothing after a removal) is what the store holds. The version
+  // busts the browser's cache of the photo.
+  const onAvatarChanged = (path, version) => {
+    setUser({ ...user, avatar: path || null })
+    setAvatarVersion(version || 0)
+  }
+
+  const save = async ev => {
+    ev.preventDefault()
+    if (saving) return
+    const cleanName = name.trim()
+    // The platform validates this too; catching the obvious case here only
+    // saves a round trip and keeps the message in the app's own voice.
+    if (cleanName.length < 2 || cleanName.length > 100) {
+      setErr(t('Your name must be between 2 and 100 characters.'))
+      return
+    }
+    setSaving(true)
+    setErr(null)
+    try {
+      const saved = await updateProfile({ name: cleanName, phone: phone.trim() })
+      // The server is the source of truth: what it answered is what the form
+      // and the store now hold.
+      const next = { ...user, ...(saved || {}) }
+      setUser(next)
+      setName(next.name || '')
+      setPhone(next.phone || '')
+      toast(t('Profile saved'))
+    } catch (e) {
+      // The platform answers in Spanish and says what to correct: show it as
+      // it came, and keep what the person typed.
+      setErr(e.message || t('Could not save your profile'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Section title={t('Your profile')}>
+      <div style={{ padding: '14px 14px 0' }}>
+        <Avatar user={user} version={avatarVersion} onChanged={onAvatarChanged} toast={toast} />
+      </div>
+      <form onSubmit={save} noValidate>
+        <div className="lrow" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 7 }}>
+          <label className="lrow-t" htmlFor="profile-name">{t('Name')}</label>
+          <TextField id="profile-name" value={name} maxLength={100} autoComplete="name"
+            onChange={e => setName(e.target.value)} />
+        </div>
+        <div className="lrow" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 7 }}>
+          <span className="lrow-t">{t('Email')}</span>
+          <span style={{ fontSize: 16, color: 'var(--label-2)', wordBreak: 'break-all' }}>{user.email || '—'}</span>
+          <span className="lrow-s">{t('This is the email you registered with — it cannot be changed here.')}</span>
+        </div>
+        <div className="lrow" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 7 }}>
+          <label className="lrow-t" htmlFor="profile-phone">{t('Phone')}</label>
+          <TextField id="profile-phone" value={phone} type="tel" inputMode="tel" maxLength={24}
+            autoComplete="tel" placeholder="+56 9 1234 5678"
+            onChange={e => setPhone(e.target.value)} />
+          <span className="lrow-s">{t('Only for WhatsApp alerts. Leave it empty to remove it.')}</span>
+        </div>
+        {err && <div className="dim small" role="alert" style={{ padding: '12px 14px 0' }}>{err}</div>}
+        <div style={{ padding: 14 }}>
+          <Button variant="primary" type="submit" disabled={saving}>
+            {saving ? t('Saving…') : t('Save')}
+          </Button>
+        </div>
+      </form>
+    </Section>
+  )
+}
+
+// How the platform may reach this person: email and WhatsApp. These are NOT
+// the training reminders — those live in the Notifications card and never
+// leave this device.
+//
+// Every switch is saved the moment it moves, and it only moves when the
+// server confirmed it: a refused save leaves the switch exactly where it was.
+function AccountAlertsCard({ user, toast }) {
+  const [prefs, setPrefs] = useState(null)   // null = still asking the platform
+  const [loadFailed, setLoadFailed] = useState(false)
+  const [pending, setPending] = useState({}) // channel -> a save is on its way
+
+  useEffect(() => {
+    let alive = true
+    fetchNotificationPrefs()
+      .then(p => { if (alive) setPrefs(p) })
+      .catch(() => { if (alive) { setPrefs({}); setLoadFailed(true) } })
+    return () => { alive = false }
+  }, [])
+
+  // A channel with no stored row reads as ENABLED on the platform.
+  const mailOn = isChannelEnabled(prefs, 'NotMail')
+  const hasPhone = canUseWhatsApp(user)
+  // Without a number the platform has no way to reach WhatsApp, so the switch
+  // stays off and disabled until a phone is saved above.
+  const wspOn = hasPhone && isChannelEnabled(prefs, 'NotWsp')
+
+  const toggle = async (channel, next) => {
+    if (pending[channel]) return
+    setPending(p => ({ ...p, [channel]: true }))
+    try {
+      const saved = await updateNotificationPrefs({ [channel]: next })
+      // Only what the server confirmed moves the switch.
+      setPrefs(p => ({ ...(p || {}), ...(saved || {}) }))
+    } catch (e) {
+      // The switch keeps the value it had: the server never said otherwise.
+      toast(e.message || t('Could not save your preference'))
+    } finally {
+      setPending(p => { const rest = { ...p }; delete rest[channel]; return rest })
+    }
+  }
+
+  return (
+    <Section title={t('Account alerts')}
+      footer={t('These alerts are about your account. Training reminders are in the Notifications card.')}>
+      {prefs === null ? (
+        <div className="lrow"><span className="lrow-m"><span className="lrow-s">{t('Loading…')}</span></span></div>
+      ) : <>
+        {loadFailed && (
+          <div className="dim small" role="alert" style={{ padding: '12px 14px 0' }}>
+            {t('We could not load your alert settings. Try again in a moment.')}
+          </div>
+        )}
+        <Row icon="bell" iconTint="var(--blue)" title={t('Email alerts')}
+          subtitle={t('Messages about your account, like your credits.')}>
+          <Switch checked={mailOn} disabled={!!pending.NotMail} onChange={v => toggle('NotMail', v)} />
+        </Row>
+        <Row icon="chat" iconTint="var(--green)" title={t('WhatsApp alerts')}
+          subtitle={hasPhone ? null : t('Add your phone above to receive alerts by WhatsApp.')}>
+          <Switch checked={wspOn} disabled={!hasPhone || !!pending.NotWsp} onChange={v => toggle('NotWsp', v)} />
+        </Row>
+      </>}
+    </Section>
+  )
 }
 
