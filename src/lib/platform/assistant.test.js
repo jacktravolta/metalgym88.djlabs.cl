@@ -124,6 +124,29 @@ describe('askAssistant — failure classification (never throws)', () => {
     expect(r.kind).toBe('insufficient_credits')
   })
 
+  it('403 EMAIL_REVERIFY_REQUIRED → reverify (the welcome-bonus gate, not a generic error)', async () => {
+    // Real platform envelope: CreditService closes the gate BEFORE any charge
+    // once the welcome-bonus threshold is crossed, and the module answers the
+    // same 403 + code the sign-in screen keys on. The UI must be able to say
+    // "confirm your email" — a generic "try again" hides the only next step.
+    const m = mockFetch([res(403, {
+      success: false,
+      error: { code: 'EMAIL_REVERIFY_REQUIRED', message: 'Necesitamos confirmar tu correo para seguir.' },
+    })])
+    vi.stubGlobal('fetch', m.impl)
+    const r = await askAssistant('q')
+    expect(r.kind).toBe('reverify')
+    expect(r.status).toBe(403)
+    expect(r.answer).toBe('')
+  })
+
+  it('the reverify code also counts on a flat error body', async () => {
+    const m = mockFetch([res(403, { error: 'verify first', code: 'EMAIL_REVERIFY_REQUIRED' })])
+    vi.stubGlobal('fetch', m.impl)
+    const r = await askAssistant('q')
+    expect(r.kind).toBe('reverify')
+  })
+
   it('404 and 501 → not_available (pre-T6: the module is packaged, not applied)', async () => {
     for (const status of [404, 501]) {
       const m = mockFetch([res(status, { error: 'no route' })])

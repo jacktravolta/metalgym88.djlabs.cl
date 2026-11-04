@@ -36,6 +36,11 @@ function classify(status, code) {
     return 'insufficient_credits'
   }
   if (status === 401) return 'auth'
+  // Welcome-bonus gate: the platform stops spending BEFORE any charge until the
+  // email is confirmed again (CreditService's reverify threshold). Same code the
+  // sign-in screen keys on — say "confirm your email", never a generic retry that
+  // hides the only next step.
+  if (String(code || '').toUpperCase().includes('EMAIL_REVERIFY_REQUIRED')) return 'reverify'
   // Not applied (yet) or unreachable: 404/501 on a not-yet-applied module, and a
   // network-level failure (no numeric status — offline, DNS, CORS, server down).
   // Both read the same to the user: not available right now, never scary.

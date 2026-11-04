@@ -19,6 +19,7 @@ import { DEMO } from '../lib/demo.js'
 import { MOBILE } from '../lib/mobile.js'
 import { t } from '../lib/i18n.js'
 import { askAssistant, fetchAssistantTariff, isOffline } from '../lib/platform/assistant.js'
+import { requestMagicLink } from '../lib/platform/auth.js'
 import { openWallet } from './Wallet.jsx'
 import Icon from './Icon.jsx'
 import { Button, TextArea, Row } from './ui.jsx'
@@ -60,9 +61,42 @@ function Bubble({ m }) {
   </div>
 }
 
+// The welcome-bonus gate: spending stops until the email is confirmed again.
+// Reuses the sign-in screen's warm copy and its resend action — the question
+// stays in the box (send() puts it back on every failure), so the user only
+// needs to confirm and press Send once more.
+function ReverifyBlock() {
+  const email = useStore(s => s.user?.email) || ''
+  const [busy, setBusy] = useState(false)
+  const [sent, setSent] = useState(false)
+  const [err, setErr] = useState(null)
+  const resend = async () => {
+    if (busy || !email) return
+    setBusy(true); setErr(null)
+    try { await requestMagicLink(email); setSent(true) }
+    catch (e) { setErr(e.message || t('Could not send the link')) }
+    setBusy(false)
+  }
+  return <div style={{ textAlign: 'center', padding: '10px 0' }}>
+    <div style={{ fontSize: 36, display: 'flex', justifyContent: 'center', color: 'var(--acc)' }}>
+      <Icon name="link" />
+    </div>
+    <h4 style={{ margin: '8px 0 4px' }}>{t('One step left: confirm your email')}</h4>
+    <div className="muted small" style={{ lineHeight: 1.5 }}>
+      {t('Your account is there — the address just needs one confirmation. We sent a link to {0}; open it to confirm, then send your question again. Nothing was spent, and your question is still in the box.', email)}
+    </div>
+    <div style={{ height: 10 }} />
+    {sent
+      ? <div className="dim small">{t('Sent — a fresh link is on its way to {0}. It can take a minute.', email)}</div>
+      : <Button variant="primary" disabled={busy} onClick={resend}>{busy ? t('Sending…') : t('Resend the link')}</Button>}
+    {err && <div className="dim small" style={{ marginTop: 6 }}>{err}</div>}
+  </div>
+}
+
 // The state blocks replace the transcript while they are up — each one says what
 // happened and what the user can do next, nothing more.
 function StateBlock({ kind, onOpenWallet }) {
+  if (kind === 'reverify') return <ReverifyBlock />
   if (kind === 'not_available') {
     return <div style={{ textAlign: 'center', padding: '10px 0' }}>
       <div style={{ fontSize: 36, display: 'flex', justifyContent: 'center', color: 'var(--acc)' }}>
