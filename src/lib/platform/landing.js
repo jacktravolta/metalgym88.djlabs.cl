@@ -48,6 +48,9 @@ export function readLanding(location) {
     pathname = String(location.pathname || '')
     search = String(location.search || '')
   }
+  // A location-like object may carry the fragment inside the query string: the
+  // token must not swallow it.
+  search = search.split('#')[0]
   // Only the verify path counts — and the trailing slash / the case of the
   // path are tolerated.
   const path = pathname.replace(/\/+$/, '').toLowerCase()
