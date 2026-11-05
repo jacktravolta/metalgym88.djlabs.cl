@@ -39,9 +39,57 @@ body.is-landing{padding-left:0 !important}
 .lg-nav a{color:var(--label-2);font-size:14px;font-weight:500;transition:color var(--fast)}
 .lg-nav a:hover{color:var(--label)}
 .lg-head-cta{margin-left:auto;display:flex;gap:8px;align-items:center}
+/* The header CTA must stay on one line: below 860px the row is packed
+   (logo + theme + burger) and a wrapped pill overflows the 62px bar. The
+   label goes short under 640px instead of wrapping. */
+.lg-head-cta .lg-btn{white-space:nowrap}
+.lg-head-cta .lg-cta-narrow{display:none}
+@media (max-width:639.98px){
+  .lg-head-cta .lg-cta-wide{display:none}
+  .lg-head-cta .lg-cta-narrow{display:inline}
+  .lg-head-cta .lg-btn{padding:0 10px;font-size:13px}
+}
+/* The burger is a phone-only control: hidden until the media query below. */
+.lg-burger{display:none}
 @media (min-width:860px){
   .lg-nav{display:flex}
   .lg-head-cta{margin-left:0}
+  .lg-burger{display:none}
+}
+/* Phones (<860px): the inline links collapse into a burger button that drops
+   a full-width panel from the header. The panel is absolutely positioned
+   against .lg-head (sticky, and the nearest positioned ancestor), so opening
+   it never shifts the page layout; .lg-head-in is not positioned, so the
+   panel spans the full header width, not just the 1080px inner row. */
+@media (max-width:859.98px){
+  .lg-burger{
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+    width:44px;height:44px;flex:none;
+    background:var(--surface);border-radius:12px;
+    transition:background var(--fast),transform var(--fast);
+  }
+  .lg-burger:active{background:var(--surface-2);transform:scale(.92)}
+  .lg-burger span{
+    width:18px;height:2px;border-radius:2px;background:var(--label);
+    transition:transform var(--fast),opacity var(--fast);
+  }
+  /* Open state: the three bars fold into an X. */
+  .lg-burger[aria-expanded="true"] span:nth-child(1){transform:translateY(6px) rotate(45deg)}
+  .lg-burger[aria-expanded="true"] span:nth-child(2){opacity:0}
+  .lg-burger[aria-expanded="true"] span:nth-child(3){transform:translateY(-6px) rotate(-45deg)}
+  .lg-nav.open{
+    display:flex;flex-direction:column;align-items:stretch;
+    position:absolute;top:100%;left:0;right:0;margin-left:0;
+    z-index:41;gap:0;
+    padding:6px 16px 10px;
+    background:var(--bg);
+    border-bottom:var(--hair) solid var(--sep-op);
+  }
+  .lg-nav.open a{
+    padding:13px 4px;font-size:16px;color:var(--label);
+    border-bottom:var(--hair) solid var(--sep-op);
+  }
+  .lg-nav.open a:last-child{border-bottom:0}
 }
 /* The day/night switch: the same round button the app uses, drawn with the
    landing's own surfaces so it reads as part of this page. */

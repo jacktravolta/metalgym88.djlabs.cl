@@ -162,7 +162,7 @@ function RegisterCard({ loggedIn }) {
             : 'Te acreditamos 100 créditos de bienvenida al confirmar tu correo. Con ellos puedes preguntarle al coach IA lo que quieras sobre tu entrenamiento.'}
         </p>
         {loggedIn && (
-          <a className="lg-btn ghost block" style={{ marginTop: 14 }} href="/#/home">
+          <a className="lg-btn ghost block" style={{ marginTop: 14 }} href="/index.html#/home">
             Ir a mi panel
           </a>
         )}
@@ -327,6 +327,27 @@ export default function Landing() {
     return () => document.body.classList.remove('is-landing')
   }, [])
 
+  // The phone menu: the nav links are hidden below 860px, so the header keeps
+  // them behind a burger button. The panel is absolutely positioned by CSS,
+  // so opening it never shifts the page layout.
+  const [menuOpen, setMenuOpen] = useState(false)
+  useEffect(() => {
+    if (!menuOpen) return
+    // Tapping outside the header, or pressing Escape, closes the menu.
+    const onPointerDown = ev => {
+      if (!ev.target.closest?.('.lg-head')) setMenuOpen(false)
+    }
+    const onKeyDown = ev => {
+      if (ev.key === 'Escape') setMenuOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [menuOpen])
+
   // Who is here: the store keeps the session in local storage, so the landing
   // knows who the person is before the app boots. A cached session can be
   // stale, so it is checked once against the platform: a button that leads to
@@ -359,19 +380,39 @@ export default function Landing() {
               <small>Tu entrenamiento</small>
             </span>
           </div>
-          <nav className="lg-nav">
-            <a href="#como-funciona">Cómo funciona</a>
-            <a href="#que-incluye">Qué incluye</a>
-            <a href="#creditos">Créditos</a>
-            <a href="#contacto">Contacto</a>
+          <nav id="lg-nav" className={'lg-nav' + (menuOpen ? ' open' : '')}>
+            <a href="#como-funciona" onClick={() => setMenuOpen(false)}>Cómo funciona</a>
+            <a href="#que-incluye" onClick={() => setMenuOpen(false)}>Qué incluye</a>
+            <a href="#creditos" onClick={() => setMenuOpen(false)}>Créditos</a>
+            <a href="#contacto" onClick={() => setMenuOpen(false)}>Contacto</a>
           </nav>
           <div className="lg-head-cta">
             <LandingThemeToggle />
+            {/* Narrow phones can't fit the full label next to logo + theme +
+                burger: the pill wraps to three lines and overflows the bar,
+                so the short label shows below 640px (CSS swaps them). */}
             {loggedIn ? (
-              <a className="lg-btn ghost" href="/#/home">Entrar al panel</a>
+              <a className="lg-btn ghost" href="/index.html#/home">
+                <span className="lg-cta-wide">Entrar al panel</span>
+                <span className="lg-cta-narrow">Entrar</span>
+              </a>
             ) : (
-              <a className="lg-btn ghost" href="#acceso">Iniciar sesión</a>
+              <a className="lg-btn ghost" href="#acceso">
+                <span className="lg-cta-wide">Iniciar sesión</span>
+                <span className="lg-cta-narrow">Iniciar</span>
+              </a>
             )}
+            {/* Phones only: three CSS bars, no icon dependency. */}
+            <button
+              type="button"
+              className="lg-burger"
+              aria-label={menuOpen ? 'Cerrar menú' : 'Abrir menú'}
+              aria-expanded={menuOpen}
+              aria-controls="lg-nav"
+              onClick={() => setMenuOpen(v => !v)}
+            >
+              <span /><span /><span />
+            </button>
           </div>
         </div>
       </header>
@@ -543,7 +584,7 @@ export default function Landing() {
             <a href={apiUrl('/privacidad')} target="_blank" rel="noreferrer">Privacidad</a>
             <a href="#contacto">Contacto</a>
             {loggedIn ? (
-              <a href="/#/home">Entrar al panel</a>
+              <a href="/index.html#/home">Entrar al panel</a>
             ) : (
               <a href="#acceso">Iniciar sesión</a>
             )}
