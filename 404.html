@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <base href="/metalgym88.djlabs.cl/">
+<meta charset="UTF-8">
+<!--
+  Content-Security-Policy. GitHub Pages cannot send response headers, so the
+  policy travels as a meta tag (the _headers file next to the bundle covers
+  the Cloudflare Pages case).
+
+  The two inline scripts are allowed by their sha256 hash, not by
+  'unsafe-inline': the theme script has to run before the first paint (a
+  file would flash the wrong theme) and the policy still forbids any other
+  inline code. Recompute the hashes after editing either script:
+
+    node -e "const fs=require('fs'),c=require('crypto');const h=fs.readFileSync('index.html','utf8');[...h.matchAll(/<script(?![^>]*src=)(?![^>]*type=)[^>]*>([^]*?)<\/script>/g)].forEach(m=>console.log(c.createHash('sha256').update(m[1]).digest('base64')))"
+-->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self' 'sha256-Y8gZRRAdU1zK6frCTDDEcEN+fvPKQZLtSHr+o1pW1Og=' 'sha256-GRqTQiLptG6wuhtB52asFIQM5iVu0U4w9MQbYH/xszE='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://api.djlabs.cl; worker-src 'self' blob:; media-src 'self' data: blob: https:; manifest-src 'self'">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>metalgym88 — Tu entrenamiento</title>
+<meta name="description" content="Entrena a tu ritmo: registra tus entrenamientos, pesos y progreso en un solo lugar.">
+<meta name="theme-color" content="#0c0e12">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="metalgym88">
+<meta property="og:title" content="metalgym88 — Tu entrenamiento">
+<meta property="og:description" content="Entrena a tu ritmo: registra tus entrenamientos, pesos y progreso en un solo lugar.">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="es_CL">
+<meta property="og:image" content="icon-512.png">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="metalgym88 — Tu entrenamiento">
+<meta name="twitter:description" content="Entrena a tu ritmo: registra tus entrenamientos, pesos y progreso en un solo lugar.">
+<meta name="twitter:image" content="icon-512.png">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-180.png">
+<script>
+  // The saved theme, applied BEFORE the first paint: the landing and the app then
+  // both come up in the right light, with no flash of the wrong one. A missing,
+  // empty or unreadable stored state simply means the default dark theme.
+  (function () {
+    var theme = 'dark';
+    try {
+      var state = JSON.parse(localStorage.getItem('gym_state_v1') || '{}');
+      if (state && state.theme === 'light') theme = 'light';
+    } catch (e) { theme = 'dark'; }
+    document.documentElement.setAttribute('data-theme', theme);
+    var meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', theme === 'light' ? '#f2f2f7' : '#000000');
+  })();
+</script>
+  <script type="module" crossorigin src="./assets/index-GYyGzSTV.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-D4Zs2Auo.css">
+</head>
+<body>
+<div id="root"></div>
+<!-- djlabs bridge deploy knob: the platform install this deployed PWA talks to.
+     Empty string falls back to the library default (https://api.djlabs.cl).
+     Deploy instructions: deploy-config/DEPLOY.md -->
+<script>window.__API_BASE__ = '';</script>
+</body>
+</html>
