@@ -244,6 +244,9 @@ function ContactCard() {
           email: email.trim(),
           message: message.trim(),
           website: website.trim(),
+          // The heart travels with the message: the platform renders the
+          // notice with THIS product's template (its colors and its logo).
+          heart: 'metalgym88',
         }),
       })
       const msg = (res && res.data && res.data.message) || null
