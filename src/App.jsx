@@ -56,7 +56,7 @@ function Shell() {
   if (!ready && !authed) return (
     <div id="app">
       <div style={{ paddingTop: '44vh', display: 'flex', justifyContent: 'center' }}>
-        <img src="/logo.jpg" alt="" width={72} height={72} style={{ borderRadius: '50%' }} />
+        <img src="logo.jpg" alt="" width={72} height={72} style={{ borderRadius: '50%' }} />
       </div>
     </div>
   )

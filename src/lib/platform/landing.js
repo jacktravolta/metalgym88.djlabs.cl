@@ -11,6 +11,7 @@
 // time after. Nothing here retries on its own — the landing offers the retry.
 import { platformCall, adopt } from './auth.js'
 import { withHeartQuery, HEART } from './config.js'
+import { appRootPath } from './app-root.js'
 
 // The only path that carries a sign-in token. The platform appends it to the
 // front origin, so the front must recognise it and nothing else.
@@ -82,8 +83,10 @@ export async function consumeMagicLink(token, deps = {}) {
 
 // Scrubs the token out of the address bar: the history entry is REPLACED, so
 // the link is not kept in the history and the token never travels as a Referer.
+// The app root is the base of the path: on a static host that serves the app
+// under a prefix, '/' would take the visitor out of the app.
 export function clearLandingUrl() {
   try {
-    window.history.replaceState(null, '', '/#/home')
+    window.history.replaceState(null, '', appRootPath() + '#/home')
   } catch { /* no history (tests, exotic webviews): nothing to clean */ }
 }

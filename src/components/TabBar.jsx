@@ -60,7 +60,7 @@ export default function TabBar({ onStart }) {
       {/* The official badge next to the name: the rail shows the brand, not
           just a name. The image is decorative — the wordmark names it. */}
       <div className="rail-brand">
-        <img className="rail-logo" src="/logo.jpg" alt="" width={24} height={24} />
+        <img className="rail-logo" src="logo.jpg" alt="" width={24} height={24} />
         <span>metalgym88</span>
         {/* Desktop chrome only — the phone bar keeps its five items exactly.
             It sits inside the brand row, which the phone layout hides. */}

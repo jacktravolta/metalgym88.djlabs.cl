@@ -10,7 +10,7 @@ export default function Login() {
     {/* The official badge instead of a generic glyph: the title below it
         already names the product, so the image itself stays decorative. */}
     <div style={{ display: 'flex', justifyContent: 'center' }}>
-      <img src="/logo.jpg" alt="" width={76} height={76} style={{ width: 76, height: 76, borderRadius: '50%' }} />
+      <img src="logo.jpg" alt="" width={76} height={76} style={{ width: 76, height: 76, borderRadius: '50%' }} />
     </div>
     <h1 style={{ fontSize: 34, fontWeight: 700, letterSpacing: '-.028em', margin: '10px 0 4px' }}>metalgym88</h1>
   </>

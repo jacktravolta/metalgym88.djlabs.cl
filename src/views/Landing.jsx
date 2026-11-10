@@ -162,7 +162,7 @@ function RegisterCard({ loggedIn }) {
             : 'Te acreditamos 100 créditos de bienvenida al confirmar tu correo. Con ellos puedes preguntarle al coach IA lo que quieras sobre tu entrenamiento.'}
         </p>
         {loggedIn && (
-          <a className="lg-btn ghost block" style={{ marginTop: 14 }} href="/index.html#/home">
+          <a className="lg-btn ghost block" style={{ marginTop: 14 }} href="index.html#/home">
             Ir a mi panel
           </a>
         )}
@@ -374,7 +374,7 @@ export default function Landing() {
           <div className="lg-brand">
             {/* The official badge, not a generic glyph: the wordmark beside it
                 already names the product, so the image itself stays decorative. */}
-            <img className="lg-logo" src="/logo.jpg" alt="" width={42} height={42} />
+            <img className="lg-logo" src="logo.jpg" alt="" width={42} height={42} />
             <span>
               metalgym88
               <small>Tu entrenamiento</small>
@@ -392,7 +392,7 @@ export default function Landing() {
                 burger: the pill wraps to three lines and overflows the bar,
                 so the short label shows below 640px (CSS swaps them). */}
             {loggedIn ? (
-              <a className="lg-btn ghost" href="/index.html#/home">
+              <a className="lg-btn ghost" href="index.html#/home">
                 <span className="lg-cta-wide">Entrar al panel</span>
                 <span className="lg-cta-narrow">Entrar</span>
               </a>
@@ -526,7 +526,7 @@ export default function Landing() {
             <div className="lg-cta">
               <a className="lg-btn primary" href="#acceso">Empezar gratis</a>
               {loggedIn ? (
-                <a className="lg-btn ghost" href="/#/settings">Ver la billetera</a>
+                <a className="lg-btn ghost" href="index.html#/settings">Ver la billetera</a>
               ) : (
                 <a className="lg-btn ghost" href="#que-incluye">Ver qué incluye</a>
               )}
@@ -584,7 +584,7 @@ export default function Landing() {
             <a href={apiUrl('/privacidad')} target="_blank" rel="noreferrer">Privacidad</a>
             <a href="#contacto">Contacto</a>
             {loggedIn ? (
-              <a href="/index.html#/home">Entrar al panel</a>
+              <a href="index.html#/home">Entrar al panel</a>
             ) : (
               <a href="#acceso">Iniciar sesión</a>
             )}
