@@ -2,6 +2,19 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
+<!--
+  Content-Security-Policy. GitHub Pages cannot send response headers, so the
+  policy travels as a meta tag (the _headers file next to the bundle covers
+  the Cloudflare Pages case).
+
+  The two inline scripts are allowed by their sha256 hash, not by
+  'unsafe-inline': the theme script has to run before the first paint (a
+  file would flash the wrong theme) and the policy still forbids any other
+  inline code. Recompute the hashes after editing either script:
+
+    node -e "const fs=require('fs'),c=require('crypto');const h=fs.readFileSync('index.html','utf8');[...h.matchAll(/<script(?![^>]*src=)(?![^>]*type=)[^>]*>([^]*?)<\/script>/g)].forEach(m=>console.log(c.createHash('sha256').update(m[1]).digest('base64')))"
+-->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self' 'sha256-Y8gZRRAdU1zK6frCTDDEcEN+fvPKQZLtSHr+o1pW1Og=' 'sha256-GRqTQiLptG6wuhtB52asFIQM5iVu0U4w9MQbYH/xszE='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://api.djlabs.cl; worker-src 'self' blob:; media-src 'self' data: blob: https:; manifest-src 'self'">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
 <title>metalgym88 — Tu entrenamiento</title>
 <meta name="description" content="Entrena a tu ritmo: registra tus entrenamientos, pesos y progreso en un solo lugar.">
