@@ -17,8 +17,10 @@
 // language pack to be read.
 import { useEffect, useState } from 'react'
 import Icon from '../components/Icon.jsx'
+import AuthPanel from '../components/AuthForms.jsx'
 import { EXIDX, gifSrc } from '../lib/exercises.js'
 import { TERMS_URL, PRIVACY_URL } from '../lib/legal.js'
+import { LOGIN_SECTION_ID, PANEL_URL, panelHref } from '../lib/landing-login.js'
 import { requestMagicLink, me as platformMe } from '../lib/platform/auth.js'
 import { phttp } from '../lib/platform/http.js'
 import { t } from '../lib/i18n.js'
@@ -330,6 +332,11 @@ export default function Landing() {
     return () => document.body.classList.remove('is-landing')
   }, [])
 
+  // The landing signs the person in here, but the PANEL is the hash-router
+  // app: the landing is a page of its own, so going in after a successful
+  // login is the same full load the "Entrar al panel" links do.
+  const enterPanel = () => { window.location.href = PANEL_URL }
+
   // The phone menu: the nav links are hidden below 860px, so the header keeps
   // them behind a burger button. The panel is absolutely positioned by CSS,
   // so opening it never shifts the page layout.
@@ -394,17 +401,12 @@ export default function Landing() {
             {/* Narrow phones can't fit the full label next to logo + theme +
                 burger: the pill wraps to three lines and overflows the bar,
                 so the short label shows below 640px (CSS swaps them). */}
-            {loggedIn ? (
-              <a className="lg-btn ghost" href="index.html#/home">
-                <span className="lg-cta-wide">Entrar al panel</span>
-                <span className="lg-cta-narrow">Entrar</span>
-              </a>
-            ) : (
-              <a className="lg-btn ghost" href="#acceso">
-                <span className="lg-cta-wide">Iniciar sesión</span>
-                <span className="lg-cta-narrow">Iniciar</span>
-              </a>
-            )}
+            {/* One label, two courses: the login section in the landing while
+                there is no session, the panel itself once there is. */}
+            <a className="lg-btn ghost" href={panelHref(loggedIn)}>
+              <span className="lg-cta-wide">Entrar al panel</span>
+              <span className="lg-cta-narrow">Entrar</span>
+            </a>
             {/* Phones only: three CSS bars, no icon dependency. */}
             <button
               type="button"
@@ -577,6 +579,46 @@ export default function Landing() {
             </div>
           </div>
         </section>
+        {/* ---------------------------------------------- login, in place -- */}
+        {/* The same decoupled login form the app opens as a sheet, rendered
+            inline here: the header CTA and the footer link point at this
+            section ("Entrar al panel" leads to the login while there is no
+            session). On a good sign-in the person goes straight to the
+            panel — the form never leaves them on a page that does nothing. */}
+        <section id={LOGIN_SECTION_ID} className="lg-sec">
+          <div className="lg-wrap">
+            <div className="lg-sec-head">
+              <h2>Entrar al panel</h2>
+              <p className="sub">
+                Si ya tienes cuenta, entra con tu correo y contraseña, o pide un enlace de acceso por
+                correo. La misma cuenta funciona en todos los productos djlabs.
+              </p>
+            </div>
+            <div className="lg-panels">
+              <div className="lg-panel">
+                <AuthPanel mode="signin" close={enterPanel} />
+              </div>
+              <div className="lg-contact-side">
+                <div className="lg-contact-card">
+                  <h3>¿Aún no tienes cuenta?</h3>
+                  <p>
+                    Crearla es gratis y toma menos de un minuto, con 100 créditos de bienvenida para el
+                    coach IA.
+                  </p>
+                  <a className="lg-btn ghost" style={{ marginTop: 12 }} href="#acceso">Crear mi cuenta</a>
+                </div>
+                <div className="lg-contact-card">
+                  <h3>¿No recuerdas tu contraseña?</h3>
+                  <p>
+                    Pide un enlace de acceso por correo y entra sin contraseña. Si nada funciona,
+                    escríbenos y te ayudamos con calma.
+                  </p>
+                  <a className="lg-btn ghost" style={{ marginTop: 12 }} href="#contacto">Escríbenos</a>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
       </main>
 
       <footer className="lg-foot">
@@ -586,11 +628,7 @@ export default function Landing() {
             <a href={TERMS_URL} target="_blank" rel="noreferrer">Términos y Condiciones</a>
             <a href={PRIVACY_URL} target="_blank" rel="noreferrer">Privacidad</a>
             <a href="#contacto">Contacto</a>
-            {loggedIn ? (
-              <a href="index.html#/home">Entrar al panel</a>
-            ) : (
-              <a href="#acceso">Iniciar sesión</a>
-            )}
+            <a href={panelHref(loggedIn)}>Entrar al panel</a>
           </div>
         </div>
       </footer>

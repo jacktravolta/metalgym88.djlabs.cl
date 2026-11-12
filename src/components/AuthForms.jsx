@@ -14,6 +14,17 @@ const gap = { display: 'grid', gap: 10 }
 
 const displayName = u => (u && (u.name || u.email)) || ''
 
+// Focus the first field so the keyboard is already up, WITHOUT moving the
+// page: the same panel also renders inline in the landing, and a landing
+// that scrolls itself to the form on load looks broken — the person is
+// denied the front door they just opened. Inside the sheet the field is
+// already in view, so nothing is lost there. The timer is cleared on the
+// way out, so a panel closed before the field is up never steals focus.
+const focusFirst = ref => () => {
+  const tm = setTimeout(() => ref.current?.focus({ preventScroll: true }), 250)
+  return () => clearTimeout(tm)
+}
+
 const afterIn = async (close, label) => {
   const { pullState, pushState } = useStore.getState()
   const signed = useStore.getState().user
@@ -33,7 +44,7 @@ function PasswordForm({ onOk, onVerify, toMagic, toRegister }) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
   const ref = useRef(null)
-  useEffect(() => { setTimeout(() => ref.current?.focus(), 250) }, [])
+  useEffect(focusFirst(ref), [])
   const go = async ev => {
     ev.preventDefault()
     if (busy) return
@@ -93,7 +104,7 @@ function MagicLinkForm({ back }) {
   const [sent, setSent] = useState(false)
   const [err, setErr] = useState(null)
   const ref = useRef(null)
-  useEffect(() => { setTimeout(() => ref.current?.focus(), 250) }, [])
+  useEffect(focusFirst(ref), [])
   const go = async ev => {
     ev.preventDefault()
     if (busy || !email.trim()) { if (!email.trim()) setErr(t('Enter your email')); return }
@@ -137,7 +148,7 @@ function RegisterForm({ onVerify, toSignin }) {
   const [sent, setSent] = useState(false)
   const [err, setErr] = useState(null)
   const ref = useRef(null)
-  useEffect(() => { setTimeout(() => ref.current?.focus(), 250) }, [])
+  useEffect(focusFirst(ref), [])
   const go = async ev => {
     ev.preventDefault()
     if (busy) return
@@ -201,7 +212,11 @@ function ReverifyPause({ email, back }) {
   )
 }
 
-export default function AuthPanel({ mode: initial = 'signin', close }) {
+// `close` is the "the form is gone" callback: the sheet passes its own (which
+// closes the sheet) and the landing passes one that goes to the panel. A
+// caller that renders the panel in place can leave it out — the default does
+// nothing, so the panel stays usable wherever it is dropped.
+export default function AuthPanel({ mode: initial = 'signin', close = () => {} }) {
   const [mode, setMode] = useState(initial)
   const [pausedEmail, setPausedEmail] = useState(null)
   if (pausedEmail !== null) {
