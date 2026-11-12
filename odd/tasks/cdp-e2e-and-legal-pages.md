@@ -221,9 +221,72 @@ the source):
 The commit hashes are recorded in Engram under the topic
 `odd/cdp-e2e-and-legal-pages/tasks` (project `metalgym88.djlabs.cl`).
 
+## Final E2E run against the live deployment
+
+Run after the platform side was repaired (CORS allowlist for
+`https://metaigym88.djlabs.cl`, emblem route, magic-link host). Evidence:
+`npm run test:e2e` → report in `artifacts/e2e/report.md`.
+
+| ID | Scenario | Result | Evidence |
+| --- | --- | --- | --- |
+| S1 | Contact | PASS | `POST /contact` reached `api.djlabs.cl` with `heart=metalgym88` (HTTP 200) and the UI confirmed it |
+| S2 | Registration | PASS | `POST /auth/magic-link` (HTTP 200), Terms accepted, the UI asked to check the inbox |
+| S2b | Verification | PASS | the mailed link answered HTTP 200 and `GET /auth/me` returned 200 (session alive) |
+| S3 | Login | PASS | sign-in link issued, session 200, balance reads "100 créditos disponibles" |
+| S4 | Access recovery | PASS | no password to reset (the product is passwordless); the recovery door re-issued the link (HTTP 200) |
+| S5 | Credit top-up | BLOCKED | limits loaded (1000–10000 CLP) and the order was created (HTTP 200), but the platform answered `provider=fake` and the redirect stayed on `api.djlabs.cl` — the real Flow gateway was never reached and no payment leg was attempted |
+| S6 | Navigation | FAIL | every view rendered (landing, home, catalogue, plan, workout, progress, history, settings, wallet) but the walk logged 3 failed resources: `POST /api/activity` → **405** |
+| S7 | Legal pages | FAIL | both links still answer the same 186–190 KB document served by `api.djlabs.cl` ("Asistente Jurídico Digital") — the live bundle predates this branch |
+
+### S6 root cause — the legacy self-API
+
+`POST /api/activity` was a leftover of the openGym fork's self-hosted backend
+(`src/lib/api.js`: "legacy self-hosted API"). The metalgym88 front is a static
+bundle: its own origin answers **405** to every `/api/*` POST. The platform has
+no equivalent endpoint, so the calls could only ever fail. Removed in this
+work unit:
+
+- `src/views/Workout.jsx` — the live-presence heartbeat (periodic ping,
+  `sendBeacon` "left" signal, and the `active:false` call).
+- `src/store/useUI.js` — the server-side "rest over" push
+  (`/api/push/rest-timer`, `/api/push/rest-timer/cancel`). The rest timer is
+  local (countdown + Capacitor local notifications in `src/lib/mobile.js`).
+
+Both were best-effort (`.catch(() => {})`), so the product never broke — it
+just logged errors and wasted requests. Verification: `npm test` 365 passed,
+`npm run build` green, and the built bundle contains **0** occurrences of
+`/api/activity` and `/api/push/rest-timer`.
+
+### Still dead in the front (reported, not touched — they need a product decision)
+
+- `src/lib/push.js` — `/api/push/public-key`, `/subscribe`, `/unsubscribe`,
+  `/api/push/test`: enabling Web Push from Settings cannot work.
+- `src/views/Admin.jsx` — six `/api/admin/*` calls: the admin dashboard loads
+  nothing. It is reachable only for `user.admin`.
+
+### S5 root cause — the payment provider is a stub
+
+`POST /payments/orders` answers `provider=fake`: the install answers with the
+fake provider instead of Flow, so no order reaches a real gateway. Wiring the
+real provider is the owner's decision (credentials and go-live checklist).
+
+### S7 root cause — the live bundle predates this branch
+
+Cloudflare Pages builds `main`; the legal pages land only when this branch is
+merged. Until then the live links keep pointing at the API.
+
 ## Next step
 
-The owner decides the next move: apply the platform CORS allowlist (so the CDP
-suite can prove the journeys instead of failing on the preflight), complete the
-responsible party's identification in `public/legal/privacidad.html`, and push the
-branch so Cloudflare Pages publishes the legal pages.
+1. Push and merge this branch (`feat/cdp-e2e-and-legal-pages`) into `main`:
+   Cloudflare Pages then publishes `public/legal/terminos.html` and
+   `public/legal/privacidad.html`, and S6 + S7 turn green on the next
+   `npm run test:e2e`.
+2. Push the API branch `feat/panel-modulos` (3 commits) — the production fix
+   lives only in the local working tree until it is pushed.
+3. Complete the responsible party's identification in
+   `public/legal/privacidad.html` (marked with an HTML comment) and review the
+   four commitments the code cannot back (§ "claims not backed by code").
+4. Decide the payment provider (`provider=fake` → Flow) and whether Web Push
+   and the admin dashboard are implemented on the platform or removed from the
+   front.
+
