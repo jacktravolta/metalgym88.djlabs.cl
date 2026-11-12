@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Términos y Condiciones — metalgym88</title>
+<meta name="description" content="Términos y Condiciones de metalgym88: qué ofrece la app, qué no es, cómo funcionan los créditos, cómo se protegen tus datos y cómo se cambian estos documentos.">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#000000">
+<style>
+/* metalgym88 legal pages — the app's own surfaces (black + green), no second palette.
+   Standalone document: the CSS lives here, the page loads no script and no external
+   resource, so it renders under the site's Content-Security-Policy as it is.
+   The theme follows the operating system's light/dark preference: a static page
+   cannot read the app's stored preference without an inline script, and the CSP
+   deliberately allows none. */
+*, *::before, *::after { box-sizing: border-box; }
+
+:root {
+  color-scheme: dark light;
+  --bg: #000000;
+  --surface: #1c1c1e;
+  --surface-2: #2c2c2e;
+  --text: #ffffff;
+  --muted: rgba(235, 235, 245, .78);
+  --faint: rgba(235, 235, 245, .58);
+  --line: rgba(84, 84, 88, .55);
+  --acc: #30d158;
+  --acc-ink: #000000;
+  --shell: 1080px;
+  --article: 740px;
+  --radius: 14px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f2f2f7;
+    --surface: #ffffff;
+    --surface-2: #ececef;
+    --text: #000000;
+    --muted: rgba(35, 35, 40, .84);
+    --faint: rgba(35, 35, 40, .64);
+    --line: rgba(60, 60, 67, .28);
+    --acc: #17692c;
+    --acc-ink: #ffffff;
+  }
+}
+
+html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 17px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--acc); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+a:hover { text-decoration-thickness: 2px; }
+:focus-visible { outline: 2px solid var(--acc); outline-offset: 3px; border-radius: 4px; }
+
+.skip {
+  position: absolute; left: -9999px; top: 0; z-index: 10;
+  background: var(--acc); color: var(--acc-ink);
+  padding: 10px 16px; border-radius: 0 0 10px 0; font-weight: 600;
+}
+.skip:focus { left: 0; }
+
+.shell { width: min(var(--shell), 100% - 32px); margin-inline: auto; }
+
+/* ------------------------------------------------------------------ header */
+.head { border-bottom: 1px solid var(--line); background: var(--bg); }
+.head-in { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; min-height: 62px; }
+.brand {
+  display: flex; align-items: center; gap: 9px;
+  color: var(--text); text-decoration: none;
+  font-weight: 700; font-size: 18px; letter-spacing: -.02em;
+}
+.brand img { width: 38px; height: 38px; border-radius: 50%; object-fit: cover; flex: none; }
+.brand small {
+  display: block; font-size: 11px; font-weight: 500;
+  color: var(--faint); text-transform: uppercase; letter-spacing: .05em;
+}
+.nav { margin-left: auto; display: flex; gap: 18px; font-size: 14px; }
+.nav a { color: var(--muted); text-decoration: none; padding: 6px 2px; }
+.nav a:hover { color: var(--text); }
+.nav a[aria-current="page"] { color: var(--text); font-weight: 600; }
+@media (max-width: 460px) {
+  .head-in { min-height: 0; padding: 12px 0; }
+  .nav { margin-left: 0; width: 100%; }
+}
+
+/* -------------------------------------------------------------------- main */
+main { padding: 40px 0 56px; }
+.article { width: min(var(--article), 100%); margin-inline: auto; }
+
+.eyebrow {
+  display: inline-flex; align-items: center; gap: 8px; margin: 0;
+  font-size: 12px; font-weight: 600; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--acc);
+}
+.eyebrow i { width: 8px; height: 8px; border-radius: 50%; background: var(--acc); }
+
+h1 {
+  font-size: clamp(30px, 6vw, 42px); line-height: 1.15;
+  letter-spacing: -.03em; font-weight: 700; margin: 12px 0 10px;
+}
+.meta { margin: 0 0 24px; color: var(--faint); font-size: 14px; }
+.lead { font-size: 18px; line-height: 1.6; color: var(--muted); margin: 0 0 32px; }
+
+h2 {
+  font-size: clamp(21px, 3.6vw, 25px); line-height: 1.25;
+  letter-spacing: -.02em; font-weight: 650; margin: 44px 0 12px;
+  scroll-margin-top: 24px;
+}
+h3 { font-size: 17px; margin: 26px 0 8px; font-weight: 650; }
+p { margin: 0 0 14px; }
+ul { margin: 0 0 14px; padding-left: 20px; }
+li { margin-bottom: 8px; }
+strong { font-weight: 650; }
+
+/* ------------------------------------------------------------------- index */
+.toc {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 18px 20px; margin: 0 0 36px;
+}
+.toc h2 {
+  margin: 0 0 10px; font-size: 13px; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--faint); font-weight: 600;
+}
+.toc ol { margin: 0; padding-left: 20px; }
+.toc li { margin-bottom: 6px; font-size: 15px; }
+.toc a { color: var(--muted); text-decoration: none; }
+.toc a:hover { color: var(--text); text-decoration: underline; }
+
+/* ------------------------------------------------------------------ blocks */
+.note {
+  background: var(--surface); border: 1px solid var(--line);
+  border-left: 3px solid var(--acc); border-radius: 12px;
+  padding: 16px 18px; margin: 20px 0 28px;
+}
+.note p:last-child { margin-bottom: 0; }
+.note .note-t { font-weight: 650; margin: 0 0 6px; }
+
+.cards {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(238px, 1fr));
+  gap: 12px; margin: 18px 0 26px;
+}
+.card {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 16px 18px;
+}
+.card h3 { margin: 0 0 6px; font-size: 16px; }
+.card p { margin: 0; color: var(--muted); font-size: 15px; }
+
+/* ------------------------------------------------------------------ footer */
+.foot { border-top: 1px solid var(--line); padding: 26px 0 40px; color: var(--faint); font-size: 14px; }
+.foot-in { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; justify-content: space-between; }
+.foot a { color: var(--muted); }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#contenido">Saltar al contenido</a>
+
+<header class="head">
+  <div class="shell head-in">
+    <a class="brand" href="../">
+      <img src="../logo.jpg" alt="" width="38" height="38">
+      <span>metalgym88<small>Términos y Condiciones</small></span>
+    </a>
+    <nav class="nav" aria-label="Documentos legales">
+      <a href="terminos.html" aria-current="page">Términos</a>
+      <a href="privacidad.html">Privacidad</a>
+      <a href="../">Ir a la app</a>
+    </nav>
+  </div>
+</header>
+
+<main id="contenido">
+  <div class="shell">
+    <article class="article">
+      <p class="eyebrow"><i></i>Documento legal</p>
+      <h1>Términos y Condiciones</h1>
+      <p class="meta">Versión 1.0 · 12 de noviembre de 2026 · metalgym88, un producto djlabs</p>
+
+      <p class="lead">
+        Este documento explica qué ofrece metalgym88, qué no es, cómo funcionan los créditos y cómo se
+        cuida tu registro de entrenamiento. Está escrito para que se entienda a la primera: si algo queda
+        poco claro, escríbenos y lo aclaramos.
+      </p>
+
+      <nav class="toc" aria-label="Contenido de este documento">
+        <h2>Contenido</h2>
+        <ol>
+          <li><a href="#quienes-somos">Quiénes somos y qué aceptas</a></li>
+          <li><a href="#que-ofrece">Qué ofrece metalgym88</a></li>
+          <li><a href="#que-no-es">Qué no es metalgym88</a></li>
+          <li><a href="#tu-cuenta">Tu cuenta y cómo entras</a></li>
+          <li><a href="#creditos">Créditos, saldo y pagos</a></li>
+          <li><a href="#tus-datos">Tus datos y la sincronización</a></li>
+          <li><a href="#uso-responsable">Uso responsable</a></li>
+          <li><a href="#cambios">Cambios en este documento</a></li>
+        </ol>
+      </nav>
+
+      <h2 id="quienes-somos">1. Quiénes somos y qué aceptas</h2>
+      <p>
+        metalgym88 es una aplicación para registrar tus entrenamientos, seguir tu progreso y conversar con
+        un coach IA sobre tus propios datos. Es un producto de djlabs: la cuenta, la billetera de créditos y
+        los pagos se administran en la plataforma djlabs, mientras que la aplicación que usas vive en este
+        mismo sitio.
+      </p>
+      <p>
+        Al crear una cuenta o al usar el servicio aceptas estos Términos. Si prefieres no crear cuenta,
+        puedes usar metalgym88 en modo invitado: la app completa funciona, pero tus datos se quedan solo en
+        ese dispositivo.
+      </p>
+
+      <h2 id="que-ofrece">2. Qué ofrece metalgym88</h2>
+      <div class="cards">
+        <div class="card">
+          <h3>Biblioteca de ejercicios</h3>
+          <p>Cada ejercicio viene con imagen y animación, para ver el movimiento antes de intentarlo.</p>
+        </div>
+        <div class="card">
+          <h3>Planes que se ajustan</h3>
+          <p>Editas rutinas, repartes los días de la semana y ajustas series, repeticiones y peso.</p>
+        </div>
+        <div class="card">
+          <h3>Registro de entrenamiento</h3>
+          <p>Cada sesión queda guardada con sus series, repeticiones y peso, y el historial responde por día.</p>
+        </div>
+        <div class="card">
+          <h3>Progreso que se ve</h3>
+          <p>Peso corporal, rachas semanales, estadísticas y un historial navegable.</p>
+        </div>
+        <div class="card">
+          <h3>Coach IA contextual</h3>
+          <p>Pregunta y responde sobre la pantalla que estás mirando y sobre tu registro guardado.</p>
+        </div>
+        <div class="card">
+          <h3>Billetera en créditos</h3>
+          <p>Los créditos pagan las preguntas al coach. El plan, la biblioteca y el historial siguen siendo gratis.</p>
+        </div>
+      </div>
+
+      <h2 id="que-no-es">3. Qué no es metalgym88</h2>
+      <p>
+        Esta es la parte más importante del documento, y por eso tiene su propia sección. metalgym88 es una
+        herramienta de registro y de acompañamiento; no es un dispositivo médico.
+      </p>
+      <div class="note">
+        <p class="note-t">No es asesoramiento médico, nutricional ni kinesiológico</p>
+        <p>
+          metalgym88 no hace diagnósticos y no reemplaza la evaluación de un profesional de la salud. Si
+          tienes una lesión, una molestia que se repite o una duda sobre tu alimentación o tu salud,
+          consulta con un médico, un kinesiólogo o un nutricionista.
+        </p>
+      </div>
+      <ul>
+        <li>
+          <strong>La IA puede equivocarse.</strong> El coach responde con información general y con los datos
+          que le entregas. Si una respuesta te parece rara o no va con tu caso, no la sigas sin contrastarla.
+        </li>
+        <li>
+          <strong>No garantizamos resultados.</strong> metalgym88 no promete que vas a alcanzar una meta de
+          peso, de fuerza o de salud. Eso depende de tu entrenamiento, tu descanso, tu alimentación y tu
+          contexto, y nada de eso está bajo nuestro control.
+        </li>
+        <li>
+          <strong>No es un canal de emergencias.</strong> Ante una urgencia de salud, no uses la aplicación:
+          atiende a un profesional de la salud.
+        </li>
+      </ul>
+
+      <h2 id="tu-cuenta">4. Tu cuenta y cómo entras</h2>
+      <ul>
+        <li>
+          <strong>El acceso normal es por enlace mágico.</strong> Escribes tu correo y te enviamos un enlace
+          de acceso de un solo uso. No hay contraseña que tengas que recordar ni que alguien pueda adivinar.
+        </li>
+        <li>
+          <strong>El enlace vence en unos minutos.</strong> Si se te pasa, pides otro desde la misma pantalla
+          y también puedes pedir que te lo reenviemos.
+        </li>
+        <li>
+          <strong>Si tu cuenta ya fue creada con contraseña, puedes entrar con ella.</strong> En ese caso la
+          contraseña la eliges tú y la aplicación no la guarda en el dispositivo.
+        </li>
+        <li>
+          <strong>Tu sesión es de corta duración.</strong> Viaja con un token de acceso que vive en memoria y
+          con una cookie de refresco httpOnly: el token no se escribe en el almacenamiento del navegador.
+        </li>
+        <li>
+          <strong>Puedes cerrar la sesión cuando quieras.</strong> Desde Ajustes sales de este dispositivo o
+          de todos los que tengas abiertos, y tu cuenta y tus datos se conservan.
+        </li>
+        <li>
+          <strong>Lo básico de tu perfil.</strong> El nombre es el que nos das al registrarte y el correo es
+          la única forma de avisarte. El teléfono es opcional y sirve solo para avisos por WhatsApp.
+        </li>
+      </ul>
+
+      <h2 id="creditos">5. Créditos, saldo y pagos</h2>
+      <ul>
+        <li>
+          <strong>El crédito es una unidad interna de uso.</strong> No es dinero, no se transfiere a otra
+          persona y no tiene un valor de mercado: sirve para pagar las operaciones medidas del servicio, que
+          hoy son las preguntas al coach IA.
+        </li>
+        <li>
+          <strong>Como referencia de transparencia, 1 crédito equivale aproximadamente a $1 CLP.</strong> Esa
+          equivalencia es orientativa, no es un tipo de cambio y no genera ningún derecho exigible.
+        </li>
+        <li>
+          <strong>Todo lo demás es gratis.</strong> El plan, la biblioteca de ejercicios, el registro, el
+          historial y las estadísticas no consumen créditos.
+        </li>
+        <li>
+          <strong>Al confirmar tu correo recibes 100 créditos de bienvenida</strong>, una sola vez y solo en
+          cuentas nuevas.
+        </li>
+        <li>
+          <strong>El costo de cada pregunta lo muestra la plataforma al confirmar.</strong> Si el servidor no
+          lo informa, la aplicación lo dice y no inventa un número.
+        </li>
+        <li>
+          <strong>Las recargas se pagan en una pasarela de pago externa (Flow), en una pestaña aparte.</strong>
+          La aplicación se queda abierta y revisa sola cómo terminó la operación.
+        </li>
+        <li>
+          <strong>Cada recarga viaja con una clave de idempotencia.</strong> Si la red se cae y la aplicación
+          reintenta, el sistema reconoce el reintento y la operación se cuenta una sola vez: no te cobramos
+          dos veces por la misma recarga.
+        </li>
+        <li>
+          <strong>Si una pregunta al coach falla, no se cobra nada por ese intento.</strong> El cobro ocurre
+          cuando la respuesta llega, y cada operación queda identificada una sola vez.
+        </li>
+        <li>
+          <strong>No generamos deuda.</strong> Si el saldo no alcanza para una operación, la operación no se
+          ejecuta y no se cobra nada; el saldo nunca queda en negativo.
+        </li>
+        <li>
+          <strong>Cada movimiento queda registrado.</strong> En la billetera ves la bienvenida, las recargas,
+          el uso del coach, los reembolsos y los ajustes de la plataforma.
+        </li>
+        <li>
+          <strong>Los límites de recarga los fija la plataforma.</strong> La aplicación los muestra y el
+          servidor los vuelve a validar al crear cada orden.
+        </li>
+      </ul>
+
+      <h2 id="tus-datos">6. Tus datos y la sincronización</h2>
+      <ul>
+        <li>
+          <strong>La aplicación funciona sin conexión.</strong> Tu registro de entrenamientos vive en el
+          almacenamiento local del navegador de tu dispositivo y es la fuente de verdad ahí: puedes entrenar
+          y registrar sin internet.
+        </li>
+        <li>
+          <strong>Cuando inicias sesión, ese estado se copia además a tu cuenta en la plataforma</strong>, para
+          que puedas retomarlo en otro dispositivo. La copia es tuya y de nadie más: cada producto guarda sus
+          datos por separado.
+        </li>
+        <li>
+          <strong>El coach IA es la única función que necesita conexión</strong>, y consume créditos.
+        </li>
+        <li>
+          <strong>Cuando preguntas al coach se envían tu pregunta y un resumen de la pantalla que estás
+          mirando</strong> (hasta 40 líneas). El servidor añade un resumen acotado de tu registro guardado
+          para poder responder con tus datos.
+        </li>
+        <li>
+          <strong>De tus preguntas y respuestas no queda registro de contenido.</strong> Los registros de
+          operación guardan identificadores, largos y costo, nunca lo que escribiste.
+        </li>
+      </ul>
+      <p>
+        El detalle completo está en la <a href="privacidad.html">Política de Privacidad</a>.
+      </p>
+
+      <h2 id="uso-responsable">7. Uso responsable</h2>
+      <ul>
+        <li>
+          Usa el coach para lo que es: preguntas sobre entrenamiento y hábitos de gimnasio. No lo uses para
+          diagnosticar ni para decidir sobre un tratamiento.
+        </li>
+        <li>
+          Si en algún momento mencionas dolor, una lesión o algo médico, el coach te recomendará pausar y
+          consultar a un médico o kinesiólogo. Hazle caso.
+        </li>
+        <li>Una cuenta es para una persona. Compartirla no es un uso responsable.</li>
+        <li>Los créditos son para tu propio uso: no los cedas a otra persona.</li>
+        <li>
+          El servicio tiene límites de uso para que una sola persona no monopolice la plataforma. Si llegas al
+          límite, la aplicación te lo dice con calma.
+        </li>
+      </ul>
+
+      <h2 id="cambios">8. Cambios en este documento</h2>
+      <p>
+        Cada versión se identifica con su número y su fecha, arriba al principio. Si el texto cambia, se publica
+        una versión nueva en esta misma dirección con la fecha correspondiente. Los cambios que afecten a lo que
+        ya pagaste o a tus datos se avisan antes de que apliquen.
+      </p>
+      <p>
+        Este documento describe el servicio tal como funciona hoy. Si algo no coincide con lo que viste,
+        escríbenos a <a href="mailto:contacto@djlabs.cl">contacto@djlabs.cl</a> y lo arreglamos.
+      </p>
+    </article>
+  </div>
+</main>
+
+<footer class="foot">
+  <div class="shell foot-in">
+    <span>metalgym88 — Tu entrenamiento. Un producto djlabs.</span>
+    <span>
+      <a href="privacidad.html">Política de Privacidad</a> ·
+      <a href="../index.html#/home">Ir a la app</a> ·
+      <a href="mailto:contacto@djlabs.cl">contacto@djlabs.cl</a>
+    </span>
+  </div>
+</footer>
+</body>
+</html>

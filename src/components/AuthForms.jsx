@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useStore, hasData } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import { login, requestMagicLink, EMAIL_REVERIFY_REQUIRED } from '../lib/platform/auth.js'
-import { apiUrl } from '../lib/platform/config.js'
+import { TERMS_URL } from '../lib/legal.js'
 import { t } from '../lib/i18n.js'
 import { Button } from './ui.jsx'
 
@@ -69,7 +69,8 @@ function PasswordForm({ onOk, onVerify, toMagic, toRegister }) {
 // The Terms & Conditions consent. The platform refuses the registration and the
 // magic-link request without it, and it is the user's consent to record: the
 // checkbox is required, and the form sends the acceptance only when it is
-// checked. The text itself lives on the platform, next to the other legal pages.
+// checked. The text itself lives with the product, in this repo: the legal
+// pages are static files served from the app's own origin.
 function TermsConsent({ checked, onChange }) {
   return (
     <label className="dim small" style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer' }}>
@@ -77,7 +78,7 @@ function TermsConsent({ checked, onChange }) {
         style={{ marginTop: 2, flexShrink: 0 }} />
       <span>
         {t('I accept the Terms and Conditions')} ·{' '}
-        <a href={apiUrl('/terminos')} target="_blank" rel="noreferrer" style={{ textDecoration: 'underline' }}>
+        <a href={TERMS_URL} target="_blank" rel="noreferrer" style={{ textDecoration: 'underline' }}>
           {t('Read them')}
         </a>
       </span>
