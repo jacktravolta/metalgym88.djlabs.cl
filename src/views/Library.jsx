@@ -1,6 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
-import { EXDB, BODYPARTS, allExercises, equipmentOf } from '../lib/exercises.js'
+import { useUI } from '../store/useUI.js'
+import { EXDB, EXIDX, BODYPARTS, allExercises, equipmentOf } from '../lib/exercises.js'
 import { bestWeightFor } from '../lib/history.js'
 import { fmtNum } from '../lib/format.js'
 import { t } from '../lib/i18n.js'
@@ -16,6 +18,43 @@ export default function Library() {
   const [bp, setBp] = useState('')
   const [eq, setEq] = useState('')
   const [shown, setShown] = useState(40)
+
+  // A link from the coach arrives as /library?ex=<id>: the exercise's sheet
+  // opens on top of the list, so the reader lands on the movement the coach
+  // named (its picture, its tags, "Añadir a mi plan") instead of on a list of
+  // 1.324 names. The query is cleaned when the sheet closes, so a refresh does
+  // not open it again.
+  const [params] = useSearchParams()
+  const navigate = useNavigate()
+  const exId = params.get('ex')
+  const sheets = useUI(s => s.sheets)
+  const opened = useRef(null)      // { sheetId, exId } — the sheet we opened
+  const seen = useRef(new Set())   // the sheets that were really on screen
+
+  useEffect(() => {
+    sheets.forEach(s => seen.current.add(s.id))
+    const cur = opened.current
+
+    // The sheet we opened is gone → the query has done its job. The URL is
+    // cleaned, so a refresh does not open the sheet again.
+    if (cur && !sheets.some(s => s.id === cur.sheetId) && seen.current.has(cur.sheetId)) {
+      opened.current = null
+      navigate('/library', { replace: true })
+      return
+    }
+
+    // The query asks for an exercise → open its sheet.
+    if (!exId) return
+    if (cur && cur.exId === exId) return          // that sheet is already open
+    // The id comes from the URL, so it is not trusted by itself: a made-up id
+    // (or a word like "constructor" that every object answers to) is simply a
+    // missing exercise — the query is cleaned, no sheet opens.
+    const ex = (Object.hasOwn(EXIDX, exId) && EXIDX[exId]) || allExercises(S).find(e => e.id === exId)
+    if (!ex) { navigate('/library', { replace: true }); return }
+    if (cur) useUI.getState().closeSheet(cur.sheetId)   // another one was open
+    opened.current = { sheetId: exerciseDetailSheet(ex).id, exId }
+  }, [exId, sheets, S])
+
   const ql = q.toLowerCase().trim()
   const base = allExercises(S).filter(e => (!bp || e.bp === bp) && (!ql || e.n.toLowerCase().includes(ql) || e.tg.includes(ql) || e.eq.includes(ql) || (e.desc || '').toLowerCase().includes(ql)))
   const eqOpts = equipmentOf(base)
