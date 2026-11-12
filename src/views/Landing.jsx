@@ -20,7 +20,7 @@ import Icon from '../components/Icon.jsx'
 import AuthPanel from '../components/AuthForms.jsx'
 import { EXIDX, gifSrc } from '../lib/exercises.js'
 import { TERMS_URL, PRIVACY_URL } from '../lib/legal.js'
-import { LOGIN_SECTION_ID, PANEL_URL, panelHref } from '../lib/landing-login.js'
+import { LOGIN_SECTION_ID, panelUrl, panelHref } from '../lib/landing-login.js'
 import { requestMagicLink, me as platformMe } from '../lib/platform/auth.js'
 import { phttp } from '../lib/platform/http.js'
 import { t } from '../lib/i18n.js'
@@ -335,7 +335,7 @@ export default function Landing() {
   // The landing signs the person in here, but the PANEL is the hash-router
   // app: the landing is a page of its own, so going in after a successful
   // login is the same full load the "Entrar al panel" links do.
-  const enterPanel = () => { window.location.href = PANEL_URL }
+  const enterPanel = () => { window.location.href = panelUrl() }
 
   // The phone menu: the nav links are hidden below 860px, so the header keeps
   // them behind a burger button. The panel is absolutely positioned by CSS,

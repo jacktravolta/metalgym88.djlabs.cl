@@ -1,5 +1,9 @@
-import { describe, it, expect } from 'vitest'
-import { LOGIN_SECTION_ID, PANEL_URL, loginSectionHref, panelHref } from './landing-login.js'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { LOGIN_SECTION_ID, panelUrl, loginSectionHref, panelHref } from './landing-login.js'
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 // The menu and the section must agree, or the label lies about where a click ends.
 describe('the landing login section contract', () => {
@@ -11,8 +15,9 @@ describe('the landing login section contract', () => {
   })
 
   it('keeps "Entrar al panel" going to the panel once the session is here', () => {
-    expect(panelHref(true)).toBe(PANEL_URL)
-    expect(PANEL_URL).toBe('index.html#/home')
+    vi.stubGlobal('document', { baseURI: 'https://metalgym88.djlabs.cl/' })
+    expect(panelHref(true)).toBe('/#/home')
+    expect(panelUrl()).toBe('/#/home')
   })
 
   it('points inside the landing, not past it at the hash router', () => {
@@ -20,5 +25,14 @@ describe('the landing login section contract', () => {
     // section. An "index.html#/…" target here would send the person to the
     // app gate instead of to the login the label promises.
     expect(panelHref(false).startsWith('index.html')).toBe(false)
+  })
+
+  it('follows the app root when the app is published under a path', () => {
+    // The panel URL is NOT a hand-written constant: GitHub Pages serves the
+    // app under /metalgym88.djlabs.cl/, and a fixed "index.html#/home" would
+    // send the person outside the app. The app root is the source of truth.
+    vi.stubGlobal('document', { baseURI: 'https://jacktravolta.github.io/metalgym88.djlabs.cl/' })
+    expect(panelUrl()).toBe('/metalgym88.djlabs.cl/#/home')
+    expect(panelHref(true)).toBe('/metalgym88.djlabs.cl/#/home')
   })
 })
