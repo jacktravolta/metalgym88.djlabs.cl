@@ -13,6 +13,7 @@
 // localStorage, nothing on the next visit. Server-side transcripts are the platform's
 // contract; the client keeps no copy once the sheet closes.
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import { DEMO } from '../lib/demo.js'
@@ -21,6 +22,7 @@ import { t } from '../lib/i18n.js'
 import { askAssistant, fetchAssistantTariff, isOffline } from '../lib/platform/assistant.js'
 import { requestMagicLink } from '../lib/platform/auth.js'
 import { buildCoachPayload } from '../lib/coach-context.js'
+import { linkifyExercises, splitBold } from '../lib/exercise-links.js'
 import { openWallet } from './Wallet.jsx'
 import Icon from './Icon.jsx'
 import { Button, TextArea, Row } from './ui.jsx'
@@ -49,8 +51,37 @@ function useOnline() {
   return online
 }
 
-function Bubble({ m }) {
+// The coach's answer, as the chat shows it: the bold the model wrote, and the
+// exercises it named as links to their sheet in the library (the picture, the
+// tags, "Añadir a mi plan"). The owner's ask: the exercise was already
+// available, the chat just never said where.
+//
+// Everything is built as React nodes — the model's text is never HTML.
+function CoachAnswer({ text, onOpen }) {
+  const runs = splitBold(text)
+  return <>
+    {runs.map((run, i) => {
+      const body = linkifyExercises(run.text).map((seg, j) => seg.type === 'link'
+        ? <a key={j} href={seg.href} title={t('See the exercise')}
+          onClick={e => { e.preventDefault(); onOpen(seg) }}
+          style={{ color: 'var(--acc)', textDecoration: 'underline', fontWeight: 600, cursor: 'pointer' }}>
+          {seg.text}
+        </a>
+        : <span key={j}>{seg.text}</span>)
+      return run.bold ? <strong key={i}>{body}</strong> : <span key={i}>{body}</span>
+    })}
+  </>
+}
+
+function Bubble({ m, close }) {
   const mine = m.role === 'user'
+  // The coach's links open the exercise: the chat closes and the library takes
+  // the reader to the exercise the coach named.
+  const navigate = useNavigate()
+  const openExercise = seg => {
+    close?.()
+    navigate('/library?ex=' + encodeURIComponent(seg.id))
+  }
   return <div style={{ display: 'flex', justifyContent: mine ? 'flex-end' : 'flex-start' }}>
     <div style={{
       maxWidth: '86%', padding: '9px 12px', borderRadius: 14, whiteSpace: 'pre-wrap', lineHeight: 1.45,
@@ -58,7 +89,7 @@ function Bubble({ m }) {
       background: mine ? 'color-mix(in srgb, var(--acc) 18%, transparent)' : 'var(--surface-3)',
       borderBottomRightRadius: mine ? 4 : 14,
       borderBottomLeftRadius: mine ? 14 : 4,
-    }}>{m.text}</div>
+    }}>{mine ? m.text : <CoachAnswer text={m.text} onOpen={openExercise} />}</div>
   </div>
 }
 
@@ -206,7 +237,7 @@ function AssistantPanel({ close, context }) {
       display: 'grid', gap: 8, maxHeight: '38vh', overflowY: 'auto',
       padding: '4px 2px', marginBottom: 10,
     }}>
-      {msgs.map((m, i) => <Bubble key={i} m={m} />)}
+      {msgs.map((m, i) => <Bubble key={i} m={m} close={close} />)}
     </div>}
 
     {kind && <div style={{ marginBottom: 10 }}><StateBlock kind={kind} onOpenWallet={openWalletHere} /></div>}

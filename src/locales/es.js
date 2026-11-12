@@ -711,6 +711,7 @@ export default {
   'AI assistant of metalgym88': 'Asistente metalgym88',
   'Ask the AI coach': 'Preguntar al coach con IA',
   'Ask the AI coach about this exercise': 'Preguntar al coach sobre este ejercicio',
+  'See the exercise': 'Ver el ejercicio',
   "Today's routine: {0}": 'Rutina de hoy: {0}',
   'Current weight: {0} {1}': 'Peso actual: {0} {1}',
   'Equipment: {0}': 'Equipamiento: {0}',
