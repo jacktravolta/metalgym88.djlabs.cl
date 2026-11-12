@@ -237,8 +237,23 @@ Run after the platform side was repaired (CORS allowlist for
 | S3 | Login | PASS | sign-in link issued, session 200, balance reads "100 créditos disponibles" |
 | S4 | Access recovery | PASS | no password to reset (the product is passwordless); the recovery door re-issued the link (HTTP 200) |
 | S5 | Credit top-up | BLOCKED | limits loaded (1000–10000 CLP) and the order was created (HTTP 200), but the platform answered `provider=fake` and the redirect stayed on `api.djlabs.cl` — the real Flow gateway was never reached and no payment leg was attempted |
-| S6 | Navigation | FAIL | every view rendered (landing, home, catalogue, plan, workout, progress, history, settings, wallet) but the walk logged 3 failed resources: `POST /api/activity` → **405** |
-| S7 | Legal pages | FAIL | both links still answer the same 186–190 KB document served by `api.djlabs.cl` ("Asistente Jurídico Digital") — the live bundle predates this branch |
+| S6 | Navigation | PASS | 9 views rendered (landing, home, catalogue, plan, workout, progress, history, settings, wallet) with **no application console error and no 404/5xx** |
+| S7 | Legal pages | PASS | the two links answer two different documents — the front's own `/legal/terminos` and `/legal/privacidad` (200, 18 643 and 16 775 bytes) |
+
+### Final verdict (run against the live deployment, after the merge)
+
+```
+7 PASS · 0 FAIL · 1 BLOCKED
+```
+
+The S6 and S7 failures above were the state **before** this branch reached
+`main`; the table now records the post-merge run.
+
+### Watching the run instead of only reading it
+
+`E2E_HEADFUL=1 npm run test:e2e` opens a real Chrome window on the desktop and
+drives the live domain in front of you (headless stays the default). Useful for
+the owner, who wants to see the journeys, not just the verdict.
 
 ### S6 root cause — the legacy self-API
 
