@@ -18,6 +18,11 @@ import { join } from 'node:path'
 
 const DEFAULT_CHROME = process.env.E2E_CHROME || '/usr/bin/google-chrome'
 
+// Headless is the default (CI-friendly), but the run can be WATCHED: with
+// E2E_HEADFUL=1 the browser opens a real window on the desktop, so a human
+// sees the journeys happen instead of only reading the report afterwards.
+const HEADFUL = process.env.E2E_HEADFUL === '1'
+
 // Generic scratch space: the session environment pre-creates /tmp/opencode and
 // allows external writes there, so the browser profile lives there instead of
 // in a random system temp path.
@@ -27,11 +32,12 @@ const TMP_ROOT = (() => {
 })()
 
 export const CHROME_ARGS = [
-  '--headless=new',
+  ...(HEADFUL ? [] : ['--headless=new']),
   '--no-sandbox',
   '--disable-gpu',
   '--disable-dev-shm-usage',
   '--window-size=1280,900',
+  ...(HEADFUL ? ['--start-maximized'] : []),
 ]
 
 /** A free TCP port on the loopback interface. */
