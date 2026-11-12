@@ -142,10 +142,10 @@ the source):
 - The identification of the legal entity (razón social, RUT, domicilio). It is not in
   this repository and it was **not invented**: `public/legal/privacidad.html` carries
   an HTML comment marking the spot for the owner to complete before publishing.
-- **Passkeys are NOT mentioned** in the Terms: they were removed with the old
-  self-hosted API (`src/lib/api.js`: "the passkey flows went with the old self-API
-  entirely") and the platform build has no passkey route. Claiming them would have
-  been false advertising.
+- **Passkeys are NOT mentioned** in the Terms: they went with the old
+  self-hosted API (the `src/lib/api.js` client that carried them was removed
+  in this branch) and the platform build has no passkey route. Claiming them
+  would have been false advertising.
 
 ### T4 — Verification
 
@@ -217,9 +217,11 @@ the source):
 | --- | --- | --- |
 | T1 + T2 | `test(e2e): CDP suite against the public deployment` | `scripts/e2e/**`, `.gitignore` (`artifacts/`), `package.json` (`test:e2e`) |
 | T3 + T4 | `feat(legal): own the Terms and Privacy pages in the front` | `public/legal/**`, `src/lib/legal.js`, `src/lib/legal.test.js`, `src/views/Landing.jsx`, `src/components/AuthForms.jsx`, this document |
+| S6 fix | `fix(app): drop the calls to the legacy self-hosted API` | `src/views/Workout.jsx`, `src/store/useUI.js`, this document |
+| dead surface | `refactor(app): remove the dead legacy self-API surface` | `src/lib/push.js`, `src/lib/api.js`, `src/lib/device.js`, `src/views/Admin.jsx`, `src/views/Settings.jsx`, `src/App.jsx`, `public/sw.js`, `src/locales/*.js`, this document |
 
-The commit hashes are recorded in Engram under the topic
-`odd/cdp-e2e-and-legal-pages/tasks` (project `metalgym88.djlabs.cl`).
+The commit hashes are in the branch history:
+`git log --oneline feat/cdp-e2e-and-legal-pages`.
 
 ## Final E2E run against the live deployment
 
@@ -257,12 +259,42 @@ just logged errors and wasted requests. Verification: `npm test` 365 passed,
 `npm run build` green, and the built bundle contains **0** occurrences of
 `/api/activity` and `/api/push/rest-timer`.
 
-### Still dead in the front (reported, not touched — they need a product decision)
+### The rest of the legacy self-API — removed
 
-- `src/lib/push.js` — `/api/push/public-key`, `/subscribe`, `/unsubscribe`,
-  `/api/push/test`: enabling Web Push from Settings cannot work.
-- `src/views/Admin.jsx` — six `/api/admin/*` calls: the admin dashboard loads
-  nothing. It is reachable only for `user.admin`.
+The owner decided (2026-11-12): the dead surface leaves the front. The platform
+keeps the real admin panel and the real notification channels; this bundle
+carries neither, so every one of those buttons could only ever answer 405.
+
+Removed in this work unit (`refactor(app): remove the dead legacy self-API surface`):
+
+- `src/lib/push.js` — the Web Push client (`/api/push/public-key`,
+  `/subscribe`, `/unsubscribe`, `/api/push/test`).
+- `src/views/Settings.jsx` — the push card with its `useState`/`useEffect`
+  subscription state, and the "Admin dashboard" row (`user.admin`).
+- `src/views/Admin.jsx` — the fork's operator panel and its six
+  `/api/admin/*` calls. The real panel lives in the platform.
+- `src/App.jsx` — the `/admin` route and its import. `Navigate` stays: the
+  catch-all route still uses it.
+- `public/sw.js` — the `push` and `notificationclick` listeners. The runtime
+  cache, the media cache-first rule and the offline fallback stay untouched,
+  and `src/main.jsx` still registers the worker.
+- `src/lib/api.js` — the self-API client. Its only surviving job was the
+  `IS_ANDROID` fact the UI branches on, which moved to `src/lib/device.js`.
+  `IS_APPLE` had no user and was not carried over.
+- Ten i18n keys, from all eleven locale packs, that only the removed cards
+  spoke.
+
+What stays: the workout-day reminder in Settings (a native local notification
+in the mobile build), and the keys the surviving cards still use —
+`Notifications`, `Not supported in this browser.` and
+`Could not change notification settings` each have a live caller.
+
+Observed verification: `npm test` → 21 files / 365 tests passed; `npm run
+build` → green; the built bundle (`dist/assets/*.js` + `dist/sw.js`) holds
+**0** occurrences of `/api/push`, `/api/admin`, `/api/activity`, `pushManager`
+and `showNotification`; `dist/sw.js` still carries `CACHE =
+'metalgym88-rt-v1'`, the `api/` no-cache rule, `caches.match` and the offline
+fallback to `INDEX_URL`.
 
 ### S5 root cause — the payment provider is a stub
 
@@ -286,7 +318,8 @@ merged. Until then the live links keep pointing at the API.
 3. Complete the responsible party's identification in
    `public/legal/privacidad.html` (marked with an HTML comment) and review the
    four commitments the code cannot back (§ "claims not backed by code").
-4. Decide the payment provider (`provider=fake` → Flow) and whether Web Push
-   and the admin dashboard are implemented on the platform or removed from the
-   front.
+4. Decide the payment provider (`provider=fake` → Flow). Web Push and the admin
+   dashboard were removed from the front on 2026-11-12: if the platform ever
+   grows them, they come back as platform features, not as calls to a
+   self-API that no longer exists.
 
