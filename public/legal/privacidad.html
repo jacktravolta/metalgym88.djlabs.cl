@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Política de Privacidad — metalgym88</title>
+<meta name="description" content="Política de Privacidad de metalgym88: qué datos junta la app, para qué los usa, dónde quedan, con quién se comparten y cómo pedir que los borren.">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#000000">
+<style>
+/* metalgym88 legal pages — the app's own surfaces (black + green), no second palette.
+   Standalone document: the CSS lives here, the page loads no script and no external
+   resource, so it renders under the site's Content-Security-Policy as it is.
+   The theme follows the operating system's light/dark preference: a static page
+   cannot read the app's stored preference without an inline script, and the CSP
+   deliberately allows none. */
+*, *::before, *::after { box-sizing: border-box; }
+
+:root {
+  color-scheme: dark light;
+  --bg: #000000;
+  --surface: #1c1c1e;
+  --surface-2: #2c2c2e;
+  --text: #ffffff;
+  --muted: rgba(235, 235, 245, .78);
+  --faint: rgba(235, 235, 245, .58);
+  --line: rgba(84, 84, 88, .55);
+  --acc: #30d158;
+  --acc-ink: #000000;
+  --shell: 1080px;
+  --article: 740px;
+  --radius: 14px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f2f2f7;
+    --surface: #ffffff;
+    --surface-2: #ececef;
+    --text: #000000;
+    --muted: rgba(35, 35, 40, .84);
+    --faint: rgba(35, 35, 40, .64);
+    --line: rgba(60, 60, 67, .28);
+    --acc: #17692c;
+    --acc-ink: #ffffff;
+  }
+}
+
+html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 17px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--acc); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+a:hover { text-decoration-thickness: 2px; }
+:focus-visible { outline: 2px solid var(--acc); outline-offset: 3px; border-radius: 4px; }
+
+.skip {
+  position: absolute; left: -9999px; top: 0; z-index: 10;
+  background: var(--acc); color: var(--acc-ink);
+  padding: 10px 16px; border-radius: 0 0 10px 0; font-weight: 600;
+}
+.skip:focus { left: 0; }
+
+.shell { width: min(var(--shell), 100% - 32px); margin-inline: auto; }
+
+/* ------------------------------------------------------------------ header */
+.head { border-bottom: 1px solid var(--line); background: var(--bg); }
+.head-in { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; min-height: 62px; }
+.brand {
+  display: flex; align-items: center; gap: 9px;
+  color: var(--text); text-decoration: none;
+  font-weight: 700; font-size: 18px; letter-spacing: -.02em;
+}
+.brand img { width: 38px; height: 38px; border-radius: 50%; object-fit: cover; flex: none; }
+.brand small {
+  display: block; font-size: 11px; font-weight: 500;
+  color: var(--faint); text-transform: uppercase; letter-spacing: .05em;
+}
+.nav { margin-left: auto; display: flex; gap: 18px; font-size: 14px; }
+.nav a { color: var(--muted); text-decoration: none; padding: 6px 2px; }
+.nav a:hover { color: var(--text); }
+.nav a[aria-current="page"] { color: var(--text); font-weight: 600; }
+@media (max-width: 460px) {
+  .head-in { min-height: 0; padding: 12px 0; }
+  .nav { margin-left: 0; width: 100%; }
+}
+
+/* -------------------------------------------------------------------- main */
+main { padding: 40px 0 56px; }
+.article { width: min(var(--article), 100%); margin-inline: auto; }
+
+.eyebrow {
+  display: inline-flex; align-items: center; gap: 8px; margin: 0;
+  font-size: 12px; font-weight: 600; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--acc);
+}
+.eyebrow i { width: 8px; height: 8px; border-radius: 50%; background: var(--acc); }
+
+h1 {
+  font-size: clamp(30px, 6vw, 42px); line-height: 1.15;
+  letter-spacing: -.03em; font-weight: 700; margin: 12px 0 10px;
+}
+.meta { margin: 0 0 24px; color: var(--faint); font-size: 14px; }
+.lead { font-size: 18px; line-height: 1.6; color: var(--muted); margin: 0 0 32px; }
+
+h2 {
+  font-size: clamp(21px, 3.6vw, 25px); line-height: 1.25;
+  letter-spacing: -.02em; font-weight: 650; margin: 44px 0 12px;
+  scroll-margin-top: 24px;
+}
+h3 { font-size: 17px; margin: 26px 0 8px; font-weight: 650; }
+p { margin: 0 0 14px; }
+ul { margin: 0 0 14px; padding-left: 20px; }
+li { margin-bottom: 8px; }
+strong { font-weight: 650; }
+
+/* ------------------------------------------------------------------- index */
+.toc {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 18px 20px; margin: 0 0 36px;
+}
+.toc h2 {
+  margin: 0 0 10px; font-size: 13px; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--faint); font-weight: 600;
+}
+.toc ol { margin: 0; padding-left: 20px; }
+.toc li { margin-bottom: 6px; font-size: 15px; }
+.toc a { color: var(--muted); text-decoration: none; }
+.toc a:hover { color: var(--text); text-decoration: underline; }
+
+/* ------------------------------------------------------------------ blocks */
+.note {
+  background: var(--surface); border: 1px solid var(--line);
+  border-left: 3px solid var(--acc); border-radius: 12px;
+  padding: 16px 18px; margin: 20px 0 28px;
+}
+.note p:last-child { margin-bottom: 0; }
+.note .note-t { font-weight: 650; margin: 0 0 6px; }
+
+.cards {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(238px, 1fr));
+  gap: 12px; margin: 18px 0 26px;
+}
+.card {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 16px 18px;
+}
+.card h3 { margin: 0 0 6px; font-size: 16px; }
+.card p { margin: 0; color: var(--muted); font-size: 15px; }
+
+/* ------------------------------------------------------------------ footer */
+.foot { border-top: 1px solid var(--line); padding: 26px 0 40px; color: var(--faint); font-size: 14px; }
+.foot-in { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; justify-content: space-between; }
+.foot a { color: var(--muted); }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#contenido">Saltar al contenido</a>
+
+<header class="head">
+  <div class="shell head-in">
+    <a class="brand" href="../">
+      <img src="../logo.jpg" alt="" width="38" height="38">
+      <span>metalgym88<small>Política de Privacidad</small></span>
+    </a>
+    <nav class="nav" aria-label="Documentos legales">
+      <a href="terminos.html">Términos</a>
+      <a href="privacidad.html" aria-current="page">Privacidad</a>
+      <a href="../">Ir a la app</a>
+    </nav>
+  </div>
+</header>
+
+<main id="contenido">
+  <div class="shell">
+    <article class="article">
+      <p class="eyebrow"><i></i>Documento legal</p>
+      <h1>Política de Privacidad</h1>
+      <p class="meta">Versión 1.0 · 12 de noviembre de 2026 · metalgym88, un producto djlabs</p>
+
+      <p class="lead">
+        Este documento explica qué datos junta metalgym88, para qué los usa, dónde quedan, con quién se
+        comparten y cómo pedir que los borren. Es una explicación llana: si algo no se entiende, pregúntanos.
+      </p>
+
+      <nav class="toc" aria-label="Contenido de este documento">
+        <h2>Contenido</h2>
+        <ol>
+          <li><a href="#quienes-somos">Quiénes somos</a></li>
+          <li><a href="#que-recogemos">Qué datos recogemos</a></li>
+          <li><a href="#para-que">Para qué los usamos</a></li>
+          <li><a href="#donde-quedan">Dónde quedan</a></li>
+          <li><a href="#con-quien">Con quién los compartimos</a></li>
+          <li><a href="#tus-derechos">Tus derechos</a></li>
+          <li><a href="#conservacion">Cuánto tiempo los conservamos</a></li>
+          <li><a href="#seguridad">Cómo los cuidamos</a></li>
+          <li><a href="#cambios">Cambios en esta política</a></li>
+          <li><a href="#contacto">Contacto</a></li>
+        </ol>
+      </nav>
+
+      <h2 id="quienes-somos">1. Quiénes somos</h2>
+      <p>
+        metalgym88 es un producto de djlabs. La aplicación que usas vive en este sitio y la cuenta, la
+        billetera de créditos y los pagos se administran en la plataforma djlabs.
+      </p>
+      <!--
+        OWNER: la razón social, el RUT y el domicilio del responsable no están en el
+        repositorio del front y no se inventan. Hay que completarlos antes de publicar.
+      -->
+      <p>
+        Para cualquier consulta sobre esta política o sobre tus datos, escríbenos a
+        <a href="mailto:contacto@djlabs.cl">contacto@djlabs.cl</a>.
+      </p>
+
+      <h2 id="que-recogemos">2. Qué datos recogemos</h2>
+      <ul>
+        <li>
+          <strong>Tu cuenta:</strong> el nombre que escribes al registrarte y tu correo electrónico. El correo
+          es la única forma de avisarte, así que lo necesitamos para poder entrar y para responderte.
+        </li>
+        <li>
+          <strong>Tu teléfono (opcional):</strong> solo si quieres recibir avisos por WhatsApp. Si lo dejas
+          vacío, no se guarda.
+        </li>
+        <li>
+          <strong>Tu foto de perfil (opcional):</strong> solo si la subes tú. La plataforma la re-codifica
+          antes de guardarla, con un máximo de 256 píxeles de lado y sin datos EXIF.
+        </li>
+        <li>
+          <strong>Tu registro de entrenamiento:</strong> ejercicios, series, repeticiones, peso, pesajes,
+          rutinas, progreso y las preferencias de la aplicación (unidad de peso, tiempos de descanso,
+          recordatorios, tema).
+        </li>
+        <li>
+          <strong>Los movimientos de tus créditos:</strong> saldo, recargas, uso del coach IA, reembolsos y
+          ajustes de la plataforma.
+        </li>
+        <li>
+          <strong>Registros mínimos de operación y seguridad:</strong> identificadores, largos y costos de
+          cada operación. Nunca guardamos en ellos el contenido de tu entrenamiento ni de tus preguntas al
+          coach.
+        </li>
+        <li>
+          <strong>Datos de pago:</strong> no los vemos. El pago ocurre dentro de la pasarela (Flow) y nosotros
+          solo recibimos el resultado de la operación. Nunca almacenamos el número de tu tarjeta.
+        </li>
+      </ul>
+
+      <h2 id="para-que">3. Para qué los usamos</h2>
+      <ul>
+        <li>Para prestarte el servicio: tu cuenta, la sincronización entre dispositivos, el coach IA y la billetera.</li>
+        <li>Para enviarte el enlace de acceso y los avisos que tú autorizaste, por correo o por WhatsApp.</li>
+        <li>Para cobrarte las recargas que ordenas tú y para mostrarte el movimiento de tus créditos.</li>
+        <li>Para cumplir las obligaciones legales y tributarias que nos apliquen.</li>
+      </ul>
+
+      <h2 id="donde-quedan">4. Dónde quedan</h2>
+      <ul>
+        <li>
+          <strong>En tu dispositivo:</strong> en el almacenamiento local del navegador. Es la fuente de verdad
+          de tu registro mientras usas la aplicación, y por eso la app funciona completa sin conexión.
+        </li>
+        <li>
+          <strong>En la plataforma:</strong> cuando inicias sesión se guarda una copia de tu registro de
+          entrenamiento en un archivo que pertenece solo a tu cuenta. El servidor comprueba la sesión en cada
+          lectura y en cada escritura, así que nadie más puede abrirlo.
+        </li>
+        <li>
+          <strong>En la pasarela de pago:</strong> los datos estrictamente necesarios para procesar la
+          transacción, por el tiempo que la pasarela los conserve.
+        </li>
+        <li>
+          <strong>En el servicio de IA:</strong> cuando preguntas al coach, tu pregunta y un resumen acotado
+          de tu registro se envían para producir la respuesta. Se envía el resumen, no un volcado de tu
+          historial.
+        </li>
+      </ul>
+
+      <h2 id="con-quien">5. Con quién los compartimos</h2>
+      <ul>
+        <li><strong>No vendemos tus datos.</strong> No los usamos para publicidad ni para perfiles de terceros.</li>
+        <li>
+          Solo se comparten, y solo lo necesario: con la pasarela de pago para cobrar, con el servicio de IA
+          para responder tu pregunta, y con las autoridades cuando la ley nos obligue.
+        </li>
+        <li>
+          Cada producto de la plataforma guarda sus datos por separado: metalgym88 no ve los datos de los
+          otros productos ni al revés.
+        </li>
+      </ul>
+
+      <h2 id="tus-derechos">6. Tus derechos</h2>
+      <p>
+        La Ley 19.628 y la Ley 21.719 te dan, sobre tus datos, derecho de acceso, rectificación, cancelación,
+        oposición y portabilidad. En la práctica:
+      </p>
+      <ul>
+        <li><strong>Acceso:</strong> te enviamos una copia de tus datos de cuenta y de tu registro de entrenamiento.</li>
+        <li><strong>Rectificación:</strong> corregimos el nombre, el teléfono o cualquier dato que esté equivocado.</li>
+        <li><strong>Cancelación y supresión:</strong> borramos tu registro de entrenamiento y tu foto de perfil.</li>
+        <li>
+          <strong>Oposición y portabilidad:</strong> puedes pedirnos que dejemos de usar tus datos para un fin
+          determinado, o que te los entreguemos en un formato que puedas llevar a otro lado.
+        </li>
+      </ul>
+      <p>
+        Para ejercer cualquiera de estos derechos, escríbenos a <a href="mailto:contacto@djlabs.cl">contacto@djlabs.cl</a>
+        desde el correo con el que te registraste. Contestamos lo antes posible y te confirmamos por escrito lo
+        que hicimos.
+      </p>
+      <div class="note">
+        <p class="note-t">Un detalle honesto sobre la supresión</p>
+        <p>
+          Al borrar tu registro de entrenamiento, tu cuenta, tu saldo y los movimientos de créditos se
+          conservan. Son los registros de las operaciones que hiciste —incluidas las que ya pagaste— y no se
+          pueden borrar sin romper el historial de lo que gastaste y de lo que pagaste.
+        </p>
+      </div>
+
+      <h2 id="conservacion">7. Cuánto tiempo los conservamos</h2>
+      <ul>
+        <li>
+          <strong>Tu registro de entrenamiento y tu foto de perfil:</strong> mientras tu cuenta esté activa. Si
+          pides la supresión, se borran de la plataforma y de este dispositivo.
+        </li>
+        <li>
+          <strong>Los movimientos de créditos y los respaldos de pago:</strong> 6 años. Es el plazo que exige
+          la normativa tributaria chilena (SII) para conservar los respaldos de las operaciones de pago.
+        </li>
+        <li>
+          <strong>Los registros de operación y seguridad</strong> (identificadores, largos y costos): el tiempo
+          necesario para operar el servicio y defenderlo de un uso indebido.
+        </li>
+      </ul>
+
+      <h2 id="seguridad">8. Cómo los cuidamos</h2>
+      <ul>
+        <li>Todo el sitio viaja por HTTPS.</li>
+        <li>
+          La política de seguridad de contenido del sitio prohíbe cargar código de terceros: la aplicación y
+          estos documentos funcionan sin scripts externos.
+        </li>
+        <li>
+          La sesión se apoya en un token de acceso de corta duración que vive en memoria y en una cookie
+          httpOnly de refresco; el token no se escribe en el almacenamiento del navegador.
+        </li>
+        <li>
+          El servidor valida la sesión en cada acceso a tu registro y solo devuelve el archivo de la cuenta
+          que corresponde a esa sesión.
+        </li>
+        <li>El servicio de IA recibe un resumen acotado de tu registro, no el historial completo.</li>
+      </ul>
+
+      <h2 id="cambios">9. Cambios en esta política</h2>
+      <p>
+        Cada versión se identifica con su número y su fecha, arriba al principio. Si el texto cambia, se publica
+        una versión nueva en esta misma dirección con la fecha correspondiente. Si el cambio afecta a tus
+        derechos, te avisamos por correo antes de que aplique.
+      </p>
+
+      <h2 id="contacto">10. Contacto</h2>
+      <p>
+        Para cualquier consulta sobre esta política o sobre tus datos:
+        <a href="mailto:contacto@djlabs.cl">contacto@djlabs.cl</a>. Los <a href="terminos.html">Términos y
+        Condiciones</a> cuentan el resto del contrato.
+      </p>
+    </article>
+  </div>
+</main>
+
+<footer class="foot">
+  <div class="shell foot-in">
+    <span>metalgym88 — Tu entrenamiento. Un producto djlabs.</span>
+    <span>
+      <a href="terminos.html">Términos y Condiciones</a> ·
+      <a href="../index.html#/home">Ir a la app</a> ·
+      <a href="mailto:contacto@djlabs.cl">contacto@djlabs.cl</a>
+    </span>
+  </div>
+</footer>
+</body>
+</html>

@@ -18,7 +18,7 @@
 import { useEffect, useState } from 'react'
 import Icon from '../components/Icon.jsx'
 import { EXIDX, gifSrc } from '../lib/exercises.js'
-import { apiUrl } from '../lib/platform/config.js'
+import { TERMS_URL, PRIVACY_URL } from '../lib/legal.js'
 import { requestMagicLink, me as platformMe } from '../lib/platform/auth.js'
 import { phttp } from '../lib/platform/http.js'
 import { t } from '../lib/i18n.js'
@@ -201,8 +201,8 @@ function RegisterCard({ loggedIn }) {
           <input type="checkbox" checked={terms} onChange={e => setTerms(e.target.checked)} />
           <span>
             Acepto los{' '}
-            <a href={apiUrl('/terminos')} target="_blank" rel="noreferrer">Términos y Condiciones</a> y la{' '}
-            <a href={apiUrl('/privacidad')} target="_blank" rel="noreferrer">Política de Privacidad</a>.
+            <a href={TERMS_URL} target="_blank" rel="noreferrer">Términos y Condiciones</a> y la{' '}
+            <a href={PRIVACY_URL} target="_blank" rel="noreferrer">Política de Privacidad</a>.
           </span>
         </label>
         {err && <p className="lg-msg err">{err}</p>}
@@ -583,8 +583,8 @@ export default function Landing() {
         <div className="lg-wrap lg-foot-in">
           <small>metalgym88 — Tu entrenamiento. Un producto djlabs.</small>
           <div className="lg-foot-links">
-            <a href={apiUrl('/terminos')} target="_blank" rel="noreferrer">Términos y Condiciones</a>
-            <a href={apiUrl('/privacidad')} target="_blank" rel="noreferrer">Privacidad</a>
+            <a href={TERMS_URL} target="_blank" rel="noreferrer">Términos y Condiciones</a>
+            <a href={PRIVACY_URL} target="_blank" rel="noreferrer">Privacidad</a>
             <a href="#contacto">Contacto</a>
             {loggedIn ? (
               <a href="index.html#/home">Entrar al panel</a>
