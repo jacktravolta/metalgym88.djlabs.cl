@@ -21,6 +21,8 @@ import { t } from '../lib/i18n.js'
 import { askAssistant, fetchAssistantTariff, isOffline } from '../lib/platform/assistant.js'
 import { requestMagicLink } from '../lib/platform/auth.js'
 import { buildCoachPayload } from '../lib/coach-context.js'
+import { resolveExercises, exerciseCards } from '../lib/coach-exercises.js'
+import { nav } from '../lib/nav.js'
 import { openWallet } from './Wallet.jsx'
 import Icon from './Icon.jsx'
 import { Button, TextArea, Row } from './ui.jsx'
@@ -49,16 +51,57 @@ function useOnline() {
   return online
 }
 
-function Bubble({ m }) {
+// The catalogue exercises the question matched.
+//
+// The cards come from the FRONT's own resolution (lib/coach-exercises.js), not
+// from the model's text: an exercise the catalogue does not have can never
+// reach the screen, and the model can never talk about one the cards do not
+// show. Each card opens the library filtered by that exact exercise.
+function ExerciseCards({ cards, onOpen }) {
+  if (!cards || !cards.length) return null
+  return <div style={{ display: 'grid', gap: 6, marginTop: 6 }}>
+    <div className="dim small">{t('Exercises from the catalogue')}</div>
+    {cards.map(card => (
+      <a
+        key={card.id}
+        href={'#' + card.link}
+        onClick={e => { e.preventDefault(); onOpen(card) }}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px 6px 6px',
+          borderRadius: 12, background: 'var(--surface-2)', textDecoration: 'none', color: 'inherit',
+        }}
+      >
+        <img
+          className="thumb"
+          src={card.imageUrl}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          width="44"
+          height="44"
+          style={{ width: 44, height: 44 }}
+        />
+        <span style={{ flex: 1, minWidth: 0, fontSize: 14, lineHeight: 1.3 }}>{card.name}</span>
+        <Icon name="chevronRight" className="chev" />
+      </a>
+    ))}
+  </div>
+}
+
+function Bubble({ m, onOpenExercise }) {
   const mine = m.role === 'user'
+  const cards = mine ? [] : (m.exercises || [])
   return <div style={{ display: 'flex', justifyContent: mine ? 'flex-end' : 'flex-start' }}>
-    <div style={{
-      maxWidth: '86%', padding: '9px 12px', borderRadius: 14, whiteSpace: 'pre-wrap', lineHeight: 1.45,
-      fontSize: 15,
-      background: mine ? 'color-mix(in srgb, var(--acc) 18%, transparent)' : 'var(--surface-3)',
-      borderBottomRightRadius: mine ? 4 : 14,
-      borderBottomLeftRadius: mine ? 14 : 4,
-    }}>{m.text}</div>
+    <div style={{ maxWidth: '86%' }}>
+      <div style={{
+        padding: '9px 12px', borderRadius: 14, whiteSpace: 'pre-wrap', lineHeight: 1.45,
+        fontSize: 15,
+        background: mine ? 'color-mix(in srgb, var(--acc) 18%, transparent)' : 'var(--surface-3)',
+        borderBottomRightRadius: mine ? 4 : 14,
+        borderBottomLeftRadius: mine ? 14 : 4,
+      }}>{m.text}</div>
+      {cards.length > 0 && <ExerciseCards cards={cards} onOpen={onOpenExercise} />}
+    </div>
   </div>
 }
 
@@ -166,20 +209,31 @@ function AssistantPanel({ close, context }) {
     const q = input.trim()
     if (!q || disabled) return
     setInput(''); setSending(true); setKind(null)
-    const r = await askAssistant(q, { conversationId, context })
+    // The catalogue is resolved from THIS question, at THIS moment: the artifact
+    // the coach receives and the cards the answer shows have to talk about the
+    // same exercises, and the question is the only thing that knows which ones.
+    const matches = resolveExercises(q, { state: useStore.getState().S })
+    const r = await askAssistant(q, { conversationId, context, exerciseMatches: matches })
     setSending(false)
     if (r.kind === 'ok') {
       // Balance refreshes after EVERY completion — the metered feature says what it cost.
       if (r.balance != null) useStore.setState({ balance: r.balance })
       if (r.conversationId) setConversationId(r.conversationId)
       setKind(null)
-      setMsgs(m => [...m, { role: 'user', text: q }, { role: 'assistant', text: r.answer }].slice(-MAX_MSGS))
+      setMsgs(m => [...m,
+        { role: 'user', text: q },
+        { role: 'assistant', text: r.answer, exercises: exerciseCards(matches) },
+      ].slice(-MAX_MSGS))
     } else {
       // The question goes back in the box: the copy promises it is still there.
       setInput(q)
       setKind(r.kind)
     }
   }
+
+  // A card opens the library with that exercise in it. The sheet closes first,
+  // so the person lands on the library and not behind a panel.
+  const openExercise = card => { close(); nav(card.link) }
 
   // Stacks the wallet ON TOP of this panel: closing the wallet brings the chat back
   // with the question still in the box, exactly as the state copy promises it.
@@ -206,7 +260,7 @@ function AssistantPanel({ close, context }) {
       display: 'grid', gap: 8, maxHeight: '38vh', overflowY: 'auto',
       padding: '4px 2px', marginBottom: 10,
     }}>
-      {msgs.map((m, i) => <Bubble key={i} m={m} />)}
+      {msgs.map((m, i) => <Bubble key={i} m={m} onOpenExercise={openExercise} />)}
     </div>}
 
     {kind && <div style={{ marginBottom: 10 }}><StateBlock kind={kind} onOpenWallet={openWalletHere} /></div>}
