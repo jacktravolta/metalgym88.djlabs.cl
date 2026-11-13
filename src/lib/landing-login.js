@@ -15,16 +15,24 @@ import { appRootPath } from './platform/app-root.js'
 export const LOGIN_SECTION_ID = 'login'
 
 /**
- * Where the panel lives: the app root plus the hash route.
+ * Where the panel lives: the app root's own document, plus the hash route.
  *
  * It is NOT a hand-written "index.html#/home": the app is published at the
  * root of its own subdomain AND under a path (GitHub Pages), and the app's own
  * magic-link landing already navigates to appRootPath() + '#/home'. Deriving
- * it from that same helper is what keeps this CTA and the rest of the app from
- * disagreeing about where "the panel" is — one source of truth, not two
- * constants that only look equal.
+ * the root from that same helper is what keeps this CTA and the rest of the
+ * app from disagreeing about where "the panel" is — one source of truth, not
+ * two constants that only look equal.
+ *
+ * The document's own name is the load-bearing part. The landing IS the app
+ * root document, so a URL that differs from it only by the fragment
+ * ("/#/home") is a SAME-DOCUMENT navigation: the browser swaps the hash and
+ * stops, the landing stays mounted and the panel never boots. The person
+ * clicks "Entrar al panel" and nothing happens. Naming the document makes the
+ * path differ, so the browser really loads the app — which is what a
+ * "goes to the panel" promise has to mean.
  */
-export const panelUrl = () => `${appRootPath()}#/home`
+export const panelUrl = () => `${appRootPath()}index.html#/home`
 
 /** The href of the landing section that renders the inline login form. */
 export const loginSectionHref = () => `#${LOGIN_SECTION_ID}`

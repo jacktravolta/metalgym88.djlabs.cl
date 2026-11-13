@@ -16,8 +16,18 @@ describe('the landing login section contract', () => {
 
   it('keeps "Entrar al panel" going to the panel once the session is here', () => {
     vi.stubGlobal('document', { baseURI: 'https://metalgym88.djlabs.cl/' })
-    expect(panelHref(true)).toBe('/#/home')
-    expect(panelUrl()).toBe('/#/home')
+    expect(panelUrl()).toBe('/index.html#/home')
+    expect(panelHref(true)).toBe(panelUrl())
+  })
+
+  it('names the document, because a fragment-only URL never loads the panel', () => {
+    // The landing IS the app root document, so "/#/home" differs from it only
+    // by the fragment: the browser swaps the hash and stops, the landing stays
+    // mounted and the panel never boots — a "goes to the panel" promise that
+    // does nothing. Verified in a real browser: the landing survived, no #app.
+    vi.stubGlobal('document', { baseURI: 'https://metalgym88.djlabs.cl/' })
+    expect(panelHref(true)).toMatch(/\/index\.html#\/home$/)
+    expect(panelHref(true)).not.toBe('/#/home')
   })
 
   it('points inside the landing, not past it at the hash router', () => {
@@ -32,7 +42,7 @@ describe('the landing login section contract', () => {
     // app under /metalgym88.djlabs.cl/, and a fixed "index.html#/home" would
     // send the person outside the app. The app root is the source of truth.
     vi.stubGlobal('document', { baseURI: 'https://jacktravolta.github.io/metalgym88.djlabs.cl/' })
-    expect(panelUrl()).toBe('/metalgym88.djlabs.cl/#/home')
-    expect(panelHref(true)).toBe('/metalgym88.djlabs.cl/#/home')
+    expect(panelUrl()).toBe('/metalgym88.djlabs.cl/index.html#/home')
+    expect(panelHref(true)).toBe('/metalgym88.djlabs.cl/index.html#/home')
   })
 })
