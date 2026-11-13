@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from './store/useStore.js'
 import { useUI } from './store/useUI.js'
-import { EXDB, EXIDX, BODYPARTS, isCardio, isBodyweightEq, allExercises, equipmentOf, exName } from './lib/exercises.js'
+import { EXDB, EXIDX, BODYPARTS, isCardio, isBodyweightEq, allExercises, equipmentOf, exName, imgSrc } from './lib/exercises.js'
 import { fmtDate, fmtNum, fmtVol, fmtDur, durPart, todayISO, uid, exCount, DAYN, MONTHS_LONG, ACCENTS } from './lib/format.js'
 import { lastEntryFor, bestWeightFor, buildSets, effectiveRoutineId, workoutVolume, setsDone, setsDoneActive, lastBW, supersetUnits, unitOf, setLabel, defaultConfig, cleanupSg, modeOf, effortOf, isBw, isPerSide, sideReps } from './lib/history.js'
 import { beep, vibrate } from './lib/sound.js'
@@ -291,9 +291,15 @@ function ExerciseDetail({ ex, close }) {
   // The coach reads THIS exercise while the sheet is open: the sheet sits on top of the
   // library list, so its context wins and the question arrives with the exercise in
   // hand — the very thing the user is looking at.
+  //
+  // The id and the image travel too: the id names the exact exercise (the
+  // catalogue exists only in the client), and the image URL lets the coach cite
+  // the picture the person is looking at.
   useCoachContext('exercise', () => ({
     title: ex.n,
     lines: [
+      t('Exercise id: {0}', ex.id),
+      ex.img ? t('Image: {0}', imgSrc(ex)) : null,
       ex.bp ? t('Muscle group: {0}', t(ex.bp)) : null,
       ex.eq ? t('Equipment: {0}', t(ex.eq)) : null,
       ex.tg ? t('Main muscle: {0}', t(ex.tg)) : null,
