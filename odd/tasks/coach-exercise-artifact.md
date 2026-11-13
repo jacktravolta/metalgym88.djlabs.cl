@@ -133,24 +133,59 @@ Out of scope:
 
 ## Tasks
 
-- [ ] **T1 — One search.** Extract the library filter into a shared pure
+- [x] **T1 — One search.** Extract the library filter into a shared pure
       function and reuse it in the library with no behavior change.
-      Route: delegated writer.
-- [ ] **T2 — The artifact.** Build the bounded artifact from the question.
-      Route: same delegated writer.
-- [ ] **T3 — Send it.** Merge the artifact into the coach request's
-      `context.lines`. Route: same delegated writer.
-- [ ] **T4 — The cards.** Render the resolved exercises under the answer:
-      image, name, working link. Route: same delegated writer.
-- [ ] **T5 — The sheet context.** Add the id and the image URL to the context
-      the exercise sheet sends. Route: same delegated writer.
+      Route: delegated writer. Done: `src/lib/exercise-search.js` (the
+      library's own rules, plus one opt-in difference: comparing without
+      accents), used by `Library.jsx` and by the coach.
+- [x] **T2 — The artifact.** Build the bounded artifact from the question.
+      Route: same delegated writer. Done: `src/lib/coach-exercises.js`.
+- [x] **T3 — Send it.** Merge the artifact into the coach request's
+      `context.lines`. Route: same delegated writer. Done: merged at send
+      time (the question is what decides the exercises), first in the lines,
+      under the platform's caps.
+- [x] **T4 — The cards.** Render the resolved exercises under the answer:
+      image, name, working link. Route: same delegated writer. Done: the
+      cards come from the front's own resolution, never from the model's
+      text; the link opens the library filtered by that exercise.
+- [x] **T5 — The sheet context.** Add the id and the image URL to the context
+      the exercise sheet sends. Route: same delegated writer. Done.
 - [ ] **T6 — Verification.** `npm test`, `npm run build`, and a live run: ask
       a question that matches the catalog and see the answer with the exercise
-      references and their images.
+      references and their images. **Blocked**: the published platform answers
+      402 to every coach question (see the finding below), so no answer comes
+      back to observe. The local half is done (404 tests, green build, the
+      payload read by hand and pinned by a test).
+
+## Findings
+
+- **The catalog stores its values in English; the screen shows them in
+  Spanish.** "chest", "abs", "barbell" behind "pecho", "abdominales",
+  "barra". A Spanish question matched nothing. The bridge is
+  `src/lib/exercises-vocab.es.js`, spread into `es.js` so there is one copy.
+- **A plain substring match turns a greeting into four random exercises.**
+  "hola, que tal estas?" matched "toques de talón alternados". The resolver
+  now matches WHOLE WORDS, in order.
+- **The library had no `?q=`.** The card's link needed it, otherwise the
+  destination showed the whole catalog with no hint which card was clicked.
+- **A new account cannot use the coach (platform defect).** The registration
+  credits the welcome bonus on the `metalgym88` wallet, but in production
+  `POST /opengym/ai` forces the install's heart (`OpengymModule::heartIdFor`)
+  and reads another wallet, so it answers 402 "your balance is 0 credits" to
+  an account that `GET /auth/me` reports with 100. The front cannot fix it:
+  in production the heart in the body is ignored.
 
 ## Verification evidence
 
-(to be filled as the tasks close)
+- `npm test` → **404 passed** (25 files; 34 new). `npm run build` → green.
+- The request body is read by hand and pinned by a test: the artifact is the
+  first `context.lines` entry, the payload keys are unchanged
+  (`{question, conversation_id, heart, context}`).
+- The artifact respects the backend's caps: at most 4 lines, each under 200
+  characters (measured 163-168), the whole context under 1.200 (measured 768
+  with a full library screen plus the artifact). The image URL is never cut:
+  the name gives way instead.
+- Live: **not possible** — the platform answers 402 before the brain call.
 
 ## Risks
 
@@ -166,14 +201,24 @@ Out of scope:
    what the front resolved, so they can disagree with what the coach says.
    The artifact exists precisely to keep the coach talking about the same
    exercises.
+4. **The credits of a new account never reach the coach** (finding above),
+   so the feature cannot be observed until the platform's wallet routing is
+   fixed.
 
 ## Progress
 
-- Branch: to be created from `origin/main`.
-- Depends on nothing in the capture feature; the capture feature consumes this
-  one for the coach scene.
+- Branch: `feat/coach-exercise-artifact` in the isolated worktree
+  (`../metalgym88.djlabs.cl-worktrees/coach-exercise-artifact`), based on
+  `origin/main` at `9b99aad`.
+- Authored lines: ~1.150 (over the 400 planning heuristic — the resolver and
+  its tests are the bulk). The work is split into seven reviewable commits;
+  whether it travels as one PR or a chain is the owner's decision.
+- Commits: `e323bda` (search), `72fe94f` (vocabulary), `3640c91` (resolver),
+  `b29c3cf` (artifact in the request), `56da59a` (library `?q=`), `04c463b`
+  (cards), `f55f579` (sheet context).
 
 ## Next step
 
-Implement T1-T5 in one delegated writer, then verify against the live
-deployment.
+Push, PR and merge are the owner's decisions. T6 waits for the platform's
+wallet fix; once it lands, the live check runs: ask a question that matches
+the catalog and see the answer with the exercise cards and their images.
