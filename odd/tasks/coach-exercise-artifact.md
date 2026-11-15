@@ -156,6 +156,69 @@ Out of scope:
       402 to every coach question (see the finding below), so no answer comes
       back to observe. The local half is done (404 tests, green build, the
       payload read by hand and pinned by a test).
+- [x] **T7 — The coach remembers.** The conversation threads survive a refresh
+      on this device: a dedicated localStorage module keeps the threads, the
+      panel restores the active one when it opens, and the person can start a
+      new conversation or delete the ones they do not want. Route: delegated
+      writer (the writer died on a provider 429 after writing the module, so
+      the panel wiring was finished by the parent — see "Verification evidence
+      (T7)"). Design and privacy rules in "The coach remembers (T7)".
+
+## The coach remembers (T7)
+
+### Problem
+
+The coach's transcript lives in `AssistantPanel`'s `useState` only (`msgs`,
+`conversationId`): a refresh, a tab close or a navigation wipes the
+conversation and the person starts over. The owner asked for the threads to
+survive a refresh.
+
+### Decision
+
+A dedicated module, `src/lib/coach-threads.js`, owns the threads in
+`localStorage` under its own key (`gym_coach_threads_v1`).
+
+The threads do NOT go into the store's `S`: `S` is the blob the app mirrors to
+the platform (`PUT /opengym/data`), so a transcript inside `S` would leave the
+device. The owner asked for a LOCAL memory, and a chat can carry personal
+content — it stays on the device that asked the question.
+
+The data model keeps several threads, one per platform `conversation_id`,
+because the platform hands the conversation id back and the front sends it
+again on every follow-up: the thread identity IS that id.
+
+### Privacy rules (non-negotiable)
+
+- The memory is bounded: at most `MAX_THREADS` threads, at most
+  `MAX_THREAD_MSGS` messages per thread (the panel's own window is 30), and a
+  TTL, so an old thread is not kept forever.
+- The person can delete one thread, clear all of them, and signing out wipes
+  every trace of the coach on that device.
+- Nothing is written to the platform, to the console, or to any other key.
+- The header comments that claim the transcript is not stored (in
+  `Assistant.jsx` and in `lib/platform/assistant.js`) are corrected: they must
+  tell the truth about where the transcript lives.
+
+### Scope
+
+In scope: the module and its tests, the panel wiring, the sign-out wipe, the
+i18n strings, this document.
+
+Out of scope: any platform change (the contract does not change), a
+server-side transcript, sending the local memory to other devices, a new npm
+dependency.
+
+### Acceptance criteria
+
+- Open the coach, ask a question, refresh the page: the conversation is still
+  there, with the same `conversation_id`, and the next question continues it.
+- A new conversation starts a new thread; the previous one stays in the list
+  and can be resumed.
+- Deleting a thread removes it from the device; signing out removes all of
+  them.
+- The store's `S` blob (the one mirrored to the platform) does not contain any
+  transcript.
+- `npm test` and `npm run build` pass.
 
 ## Findings
 
@@ -187,6 +250,35 @@ Out of scope:
   the name gives way instead.
 - Live: **not possible** — the platform answers 402 before the brain call.
 
+### Verification evidence (T7 — the coach remembers)
+
+- `npx vitest run src/lib/coach-threads.test.js` → **14 passed**.
+- `npx vitest run` (whole front) → **418 passed (26 files)**. `npm run build` →
+  green.
+- Two of the writer's own tests failed on arrival and both were the test's
+  fault, not the module's: one read the memory with the real clock (`now` =
+  2026) over threads written at `now = 1000` (1970), so the TTL expired them
+  exactly as it should; the other assumed the active thread was the first one
+  written, while `upsertCoachThread` deliberately leaves the last one active.
+  Both tests were corrected and the second one now covers both branches
+  (removing another thread keeps the active one; removing the active one
+  clears it).
+- The module and its shape: `src/lib/coach-threads.js` owns the threads under
+  `gym_coach_threads_v1`, bounded to 10 threads, 30 messages each and a 30-day
+  TTL; exercise cards are stored as catalogue **ids** and rebuilt from the live
+  catalogue when the thread is restored, so a renamed exercise stays current
+  and an unknown id is skipped instead of rendering a broken card.
+- The privacy rule is pinned by a test, not by a promise: the transcript is in
+  `localStorage` and **not** in the store's `S` blob (the one mirrored to the
+  platform), and signing out wipes the coach key (`src/store/useStore.js`).
+- The header comments that claimed the transcript was not stored are corrected:
+  `src/components/Assistant.jsx` and `src/lib/platform/assistant.js` now say
+  where it really lives.
+- Live: **not possible** — the platform answers 402 before the brain call, so
+  the round trip could not be observed in a browser. The local half (restore on
+  open, save on every answer, resume, delete, sign-out wipe) is covered by the
+  module's tests and by the wiring in the panel.
+
 ## Risks
 
 1. **The deployed platform may ignore `context`.** The module packaged inside
@@ -215,7 +307,14 @@ Out of scope:
   whether it travels as one PR or a chain is the owner's decision.
 - Commits: `e323bda` (search), `72fe94f` (vocabulary), `3640c91` (resolver),
   `b29c3cf` (artifact in the request), `56da59a` (library `?q=`), `04c463b`
-  (cards), `f55f579` (sheet context).
+  (cards), `f55f579` (sheet context), `83ae50c` (the coach remembers).
+- Route of the last work unit: **delegated writer + parent finishing the
+  wiring**. The delegated writer wrote the module and its tests and then died
+  on a provider 429 (HTTP 429, model provider — not a Gentle AI defect, so no
+  defect report applies). Its module was good; its wiring was missing (the
+  imports were in place and nothing called them), and two of its own tests
+  were wrong (see the evidence above). The parent wired the panel, fixed the
+  two tests and ran the suite.
 
 ## Next step
 
