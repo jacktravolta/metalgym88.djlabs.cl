@@ -9,9 +9,10 @@
 // the user can do next. No blame, no urgency, no invented numbers — the per-question
 // cost is only ever shown when the platform itself served it.
 //
-// Privacy: the transcript lives in THIS component's state only — nothing in
-// localStorage, nothing on the next visit. Server-side transcripts are the platform's
-// contract; the client keeps no copy once the sheet closes.
+// Privacy: the transcript lives on THIS device, under the coach threads' own
+// localStorage key. It never enters the store's S blob, so it is never mirrored
+// to the platform. The person can delete a thread or all of them, and signing
+// out erases the local memory.
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
@@ -22,15 +23,23 @@ import { askAssistant, fetchAssistantTariff, isOffline } from '../lib/platform/a
 import { requestMagicLink } from '../lib/platform/auth.js'
 import { buildCoachPayload } from '../lib/coach-context.js'
 import { resolveExercises, exerciseCards } from '../lib/coach-exercises.js'
+import {
+  MAX_THREAD_MSGS,
+  clearCoachThreads,
+  readCoachMemory,
+  removeCoachThread,
+  restoreThreadMessages,
+  setActiveCoachThread,
+  upsertCoachThread,
+} from '../lib/coach-threads.js'
 import { nav } from '../lib/nav.js'
 import { openWallet } from './Wallet.jsx'
 import Icon from './Icon.jsx'
 import { Button, TextArea, Row } from './ui.jsx'
 
-// Session-only window: enough context to follow a conversation, small enough that a
-// long chat can't bloat the sheet. Beyond the window older turns are dropped (not
-// stored anywhere — see the privacy note above).
-const MAX_MSGS = 30
+// The window of a conversation: enough context to follow it, small enough that a long
+// chat can't bloat the sheet or the device's memory. The same number governs the
+// panel and the saved thread — one window, one rule.
 
 const gap = { display: 'grid', gap: 10 }
 
@@ -179,9 +188,10 @@ function StateBlock({ kind, onOpenWallet }) {
 
 function AssistantPanel({ close, context }) {
   const balance = useStore(s => s.balance)
-  const [msgs, setMsgs] = useState([])       // [{ role, text }] — component state ONLY
+  const [msgs, setMsgs] = useState([])       // [{ role, text }] — restored from the device memory
   const [input, setInput] = useState('')
   const [conversationId, setConversationId] = useState(null)
+  const [threads, setThreads] = useState([]) // the conversations saved on this device
   const [sending, setSending] = useState(false)
   const [kind, setKind] = useState(null)     // null | 'not_available' | 'insufficient_credits' | 'auth' | 'error'
   const [tariff, setTariff] = useState(undefined) // undefined = loading, null = not served, { cost } = served
@@ -194,6 +204,19 @@ function AssistantPanel({ close, context }) {
     let alive = true
     fetchAssistantTariff().then(r => { if (alive) setTariff(r) })
     return () => { alive = false }
+  }, [])
+
+  // The panel opens on the conversation this device already has: a refresh, a tab
+  // close or a navigation must not wipe the thread. The transcript, its conversation
+  // id and the exercise cards come back exactly as they were left.
+  useEffect(() => {
+    const memory = readCoachMemory()
+    setThreads(memory.threads)
+    if (!memory.activeConversationId) return
+    const thread = memory.threads.find(item => item.conversationId === memory.activeConversationId)
+    if (!thread) return
+    setConversationId(thread.conversationId)
+    setMsgs(restoreThreadMessages(thread.messages))
   }, [])
 
   // Keep the newest bubble in view.
@@ -218,12 +241,20 @@ function AssistantPanel({ close, context }) {
     if (r.kind === 'ok') {
       // Balance refreshes after EVERY completion — the metered feature says what it cost.
       if (r.balance != null) useStore.setState({ balance: r.balance })
-      if (r.conversationId) setConversationId(r.conversationId)
+      const nextConversationId = r.conversationId || conversationId
+      setConversationId(nextConversationId)
       setKind(null)
-      setMsgs(m => [...m,
+      const next = [...msgs,
         { role: 'user', text: q },
         { role: 'assistant', text: r.answer, exercises: exerciseCards(matches) },
-      ].slice(-MAX_MSGS))
+      ].slice(-MAX_THREAD_MSGS)
+      setMsgs(next)
+      // The thread is saved on THIS device right away: a refresh must not lose it,
+      // and nothing about it is sent to the platform.
+      if (nextConversationId) {
+        upsertCoachThread(nextConversationId, next)
+        setThreads(readCoachMemory().threads)
+      }
     } else {
       // The question goes back in the box: the copy promises it is still there.
       setInput(q)
@@ -238,6 +269,33 @@ function AssistantPanel({ close, context }) {
   // Stacks the wallet ON TOP of this panel: closing the wallet brings the chat back
   // with the question still in the box, exactly as the state copy promises it.
   const openWalletHere = () => openWallet()
+
+  // The conversations saved on this device: resume one, start a new one, delete the
+  // ones the person does not want. None of this leaves the device.
+  const newConversation = () => {
+    setMsgs([]); setConversationId(null); setKind(null)
+    setActiveCoachThread(null)
+    setThreads(readCoachMemory().threads)
+  }
+
+  const resumeThread = thread => {
+    setConversationId(thread.conversationId)
+    setMsgs(restoreThreadMessages(thread.messages))
+    setKind(null)
+    setActiveCoachThread(thread.conversationId)
+  }
+
+  const deleteThread = threadId => {
+    removeCoachThread(threadId)
+    if (threadId === conversationId) { setMsgs([]); setConversationId(null) }
+    setThreads(readCoachMemory().threads)
+  }
+
+  const forgetEveryThread = () => {
+    clearCoachThreads()
+    setMsgs([]); setConversationId(null); setKind(null)
+    setThreads(readCoachMemory().threads)
+  }
 
   return <>
     <h3>{t('AI Coach')}</h3>
@@ -255,6 +313,37 @@ function AssistantPanel({ close, context }) {
     </div>}
 
     {offline && <div className="dim small" style={{ marginBottom: 8, lineHeight: 1.5 }}>{OFFLINE_LINE()}</div>}
+
+    {/* The conversations saved on this device. They never leave it. */}
+    <div style={{ marginBottom: 8 }}>
+      <div className="row between" style={{ alignItems: 'center', gap: 8 }}>
+        <span className="dim small">{t('Your conversations')}</span>
+        <Button variant="ghost" className="dim" onClick={newConversation}>{t('New conversation')}</Button>
+      </div>
+      {threads.length > 0 && <div style={{ display: 'grid', gap: 2, marginTop: 6, maxHeight: 120, overflowY: 'auto' }}>
+        {threads.map(thread => {
+          const active = thread.conversationId === conversationId
+          return <div key={thread.conversationId} className="row between" style={{ padding: '3px 0', gap: 8 }}>
+            <button
+              onClick={() => resumeThread(thread)}
+              style={{
+                flex: 1, minWidth: 0, textAlign: 'left', border: 'none', background: 'transparent',
+                color: active ? 'var(--acc)' : 'var(--label)', font: 'inherit', padding: 0,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer',
+              }}
+            >{thread.title || t('Conversation')}</button>
+            <button
+              onClick={() => deleteThread(thread.conversationId)}
+              aria-label={t('Delete')}
+              style={{ border: 'none', background: 'transparent', color: 'var(--grey)', font: 'inherit', padding: '0 4px', cursor: 'pointer' }}
+            >×</button>
+          </div>
+        })}
+      </div>}
+      {threads.length > 1 && <div style={{ marginTop: 6 }}>
+        <Button variant="ghost" className="dim" onClick={forgetEveryThread}>{t('Delete all conversations')}</Button>
+      </div>}
+    </div>
 
     {msgs.length > 0 && <div ref={listRef} style={{
       display: 'grid', gap: 8, maxHeight: '38vh', overflowY: 'auto',

@@ -8,6 +8,7 @@ import { registerCustom } from '../lib/exercises.js'
 import { DEMO, DEMO_SEEDED } from '../lib/demo.js'
 import { MOBILE, nativeLoad, nativeSave, syncReminder } from '../lib/mobile.js'
 import { STATE_KEY } from '../lib/theme.js'
+import { COACH_THREADS_KEY } from '../lib/coach-threads-key.js'
 
 // The one entry that holds the whole app state. The key lives in lib/theme.js
 // because the landing has to read and write the theme inside it too.
@@ -74,11 +75,13 @@ export const useStore = create((set, get) => {
     }
   })
 
-  // Everything a sign-out leaves behind on this device, whichever way it was triggered.
+  // Everything a sign-out leaves behind on this device, whichever way it was triggered,
+  // including the coach's local conversation memory.
   const clearLocalSession = () => {
     get().setUser(null)
     localStorage.removeItem('gym_guest')
     localStorage.removeItem('gym_dirty')
+    localStorage.removeItem(COACH_THREADS_KEY)
     localStorage.removeItem(KEY)
     persist(clone(DEF), false)
   }

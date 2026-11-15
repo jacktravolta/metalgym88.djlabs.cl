@@ -5,7 +5,9 @@
 // carries the remaining balance, so the UI can refresh "Saldo restante" after every
 // completion. Conversation continuity rides on the platform's /chat/completions
 // contract shape: the server hands back a conversation_id and every follow-up sends
-// it again — transcripts live server-side only.
+// it again. The transcript itself lives on the DEVICE, under the coach threads' own
+// localStorage key — never in the store blob the platform mirrors — see
+// lib/coach-threads.js.
 //
 // The request body carries three things: the question, the conversation it belongs to
 // and the heart. A fourth one is OPTIONAL — `context`, the summary of the screen the
