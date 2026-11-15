@@ -719,6 +719,10 @@ h4.sec{
   overscroll-behavior:contain;touch-action:pan-y;will-change:transform;
 }
 :root[data-theme="light"] .sheet{background:var(--bg)}
+/* The coach's sheet: a solid stage, not an elevated grey. Over a chat full of
+   bubbles the default sheet colour read as translucent — the app behind seemed
+   to show through and the conversation lost its ground. */
+.sheet-coach{background:var(--bg)}
 @keyframes sheetup{from{transform:translateY(100%)}to{transform:none}}
 .sheet .grab{width:36px;height:5px;border-radius:99px;background:var(--label-4);margin:6px auto 14px}
 .sheet h3{font-size:20px;font-weight:600;letter-spacing:-.021em;margin-bottom:14px}

@@ -546,7 +546,9 @@ function AssistantPanel({ close, context }) {
     <div ref={listRef} style={{
       display: 'grid', gap: 10, maxHeight: '42vh', overflowY: 'auto',
       padding: '6px 2px', marginBottom: 12, scrollBehavior: 'smooth',
-      background: 'color-mix(in srgb, var(--surface) 60%, transparent)', borderRadius:12
+      // Opaque: a translucent well let the sheet's own content show through the
+      // bubbles, which is what made the conversation hard to read.
+      background: 'var(--surface)', border: '1px solid var(--sep)', borderRadius: 12
     }}>
       {msgs.map((m, i) => (
         <Bubble key={m.id || i} m={m} onSpeak={(text)=>{ speak(text, ttsLang); playTick() }} onOpenExercise={openExercise} />
@@ -598,7 +600,13 @@ export function openAssistant() {
   if (MOBILE || DEMO) return null
   if (!useStore.getState().user) return null
   const context = buildCoachPayload()
-  return useUI.getState().openSheet(close => <AssistantPanel close={close} context={context} />)
+  // The coach's own sheet: a solid black stage. The default sheet is the elevated
+  // grey, and over a chat full of bubbles and cards that grey read as translucent —
+  // the app behind seemed to show through and the conversation got confusing.
+  return useUI.getState().openSheet(
+    close => <AssistantPanel close={close} context={context} />,
+    { className: 'sheet-coach' }
+  )
 }
 
 // The Settings entry. Offline the row renders untappable WITH the honest one-liner —
