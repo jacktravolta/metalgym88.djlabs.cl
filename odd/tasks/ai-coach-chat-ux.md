@@ -109,6 +109,35 @@ Out of scope:
       test file, one call site).
       Acceptance: no asterisk, underscore, backtick or pipe reaches the
       utterance; prices, percentages and plain words are read untouched.
+- [x] **T7 — The thinking state moves.** The bubble showed a still icon, which
+      says nothing about time passing. It is now an arc that turns
+      (`<Icon name="spinner" className="spin" />`, `.spin` + `@keyframes spin`
+      in `src/index.css`). Route: inline writer (one icon, one keyframe, one
+      JSX line).
+      Acceptance: the waiting state is visibly alive; reduced motion still
+      disables it (the global rule already covers animations).
+- [x] **T8 — The two switches are remembered, and they start ON.** The sound and
+      the voice now live in the app state (`S.coachSound` / `S.coachVoice`),
+      like every other setting: localStorage keeps them and the account carries
+      them to the other devices. Both default to ON, and a MISSING key reads as
+      ON, so nobody finds a muted coach they never muted. Route: inline writer
+      (the store's own `update()` pattern, no new mechanism).
+- [x] **T9 — The conversation survives the modal AND the reload.** The owner
+      changed the privacy call: the transcript lives on the DEVICE, under the
+      coach threads' own localStorage key (`gym_coach_threads_v1`), never in the
+      store's `S` blob, so it is never mirrored to the platform. A control
+      erases every conversation, and signing out wipes the key. Route: merged
+      from the `coach-exercise-artifact` feature (see its own document) and
+      reconciled with this one's chat UX.
+      Acceptance: closing the modal, reloading the page or opening another
+      conversation does not lose the thread; the erase control is visible
+      whenever there is something to erase; signing out erases it.
+- [x] **T10 — The answer can show the exercise.** The coach resolves the
+      question against the product's own catalogue and the matched exercises
+      arrive under the answer WITH THEIR ANIMATION (the GIF), not only the
+      still picture. Route: merged from the `coach-exercise-artifact` feature.
+      Acceptance: the bubble shows the moving exercise; tapping it opens that
+      exercise in the library.
 
 ## Findings
 
@@ -155,6 +184,9 @@ Out of scope:
 - `npm run build` → green.
 - After T6: `npm test` → 378 passed (23 files), the new `src/lib/speech.test.js`
   pinning the eight rules of the cleaner. `npm run build` → green.
+- After T7–T10 (the merge of the catalogue feature): `npm test` → **428 passed**
+  (27 files). `npm run build` → green. The live bundle was checked by polling
+  the domain for the new asset names.
 
 ## Progress
 
