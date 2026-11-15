@@ -100,6 +100,15 @@ Out of scope:
 - [x] **T5 — Regression and commits.** `npm test`, `npm run build`, and the new
       icons/strings wired into the existing set and locale.
       Acceptance: the build is green and the suite passes.
+- [x] **T6 — The voice does not read the markdown.** The answer arrives as
+      markdown (`**bold**`, `*italic*`, bullet lists, links) and the speech
+      engine read every marker out loud — "asterisco", sometimes several times
+      in the same sentence, which took the answer out of context. A pure
+      cleaner (`src/lib/speech.js`) prepares the text that is SPOKEN; the
+      bubble keeps the markdown. Route: inline writer (one pure module, one
+      test file, one call site).
+      Acceptance: no asterisk, underscore, backtick or pipe reaches the
+      utterance; prices, percentages and plain words are read untouched.
 
 ## Findings
 
@@ -113,6 +122,18 @@ Out of scope:
 - **`onstart` is not reliable.** Some engines fire it late or not at all, so
   the "speaking" flag is also set when the utterance is queued — otherwise the
   Stop control would appear after the voice had already started.
+- **A speech engine reads markdown punctuation.** `SpeechSynthesis` has no idea
+  what `**` is: it says "asterisco", and a bulleted answer says it once per
+  bullet. The cleanup lives in its own module because it is a rule about
+  LANGUAGE, not about the chat: `toSpeechText()` strips the markers from the
+  text that is spoken and touches nothing else. Prices ("$15.000"), percentages
+  ("40%") and words like "user_id" survive it.
+- **A marker regex can eat the paragraph break.** The first version of the
+  blockquote rule used `\s{0,3}` before the `>`: `\s` also matches the line
+  break, so a quoted paragraph swallowed the blank line in front of it. The
+  leading space class is `[ \t]` everywhere now, and the emphasis content is
+  kept on one line so a stray `*` cannot swallow the text between two
+  asterisks that belong to different lines.
 
 ## Acceptance criteria
 
@@ -132,6 +153,8 @@ Out of scope:
   four new strings missing from `src/locales/es.js`; they were added and the
   suite went green.
 - `npm run build` → green.
+- After T6: `npm test` → 378 passed (23 files), the new `src/lib/speech.test.js`
+  pinning the eight rules of the cleaner. `npm run build` → green.
 
 ## Progress
 

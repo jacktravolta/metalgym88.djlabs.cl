@@ -21,6 +21,7 @@ import { t } from '../lib/i18n.js'
 import { askAssistant, fetchAssistantTariff, isOffline } from '../lib/platform/assistant.js'
 import { requestMagicLink } from '../lib/platform/auth.js'
 import { buildCoachPayload } from '../lib/coach-context.js'
+import { toSpeechText } from '../lib/speech.js'
 import { openWallet } from './Wallet.jsx'
 import Icon from './Icon.jsx'
 import { Button, TextArea, Row, Switch } from './ui.jsx'
@@ -66,7 +67,12 @@ function useTTS() {
   const supported = typeof window !== 'undefined' && 'speechSynthesis' in window
   const speak = (text, lang = 'es-ES') => {
     if (!supported || !text) return false
-    const u = new SpeechSynthesisUtterance(text)
+    // The answer arrives as markdown; a voice engine would read every asterisk
+    // out loud ("asterisco") and the sentence would stop making sense. Only the
+    // spoken text is cleaned — the bubble keeps the markdown.
+    const clean = toSpeechText(text)
+    if (!clean) return false
+    const u = new SpeechSynthesisUtterance(clean)
     u.lang = lang
     u.rate = 1
     u.onstart = () => setSpeaking(true)
