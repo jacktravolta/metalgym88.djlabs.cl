@@ -20,6 +20,8 @@ export default {
   'Conversation': 'Conversación',
   'Your conversations': 'Tus conversaciones',
   'Delete all conversations': 'Eliminar todas las conversaciones',
+  'Delete all conversations?': '¿Eliminar todas las conversaciones?',
+  'The conversations saved on this device will be erased. This cannot be undone.': 'Se borrarán las conversaciones guardadas en este dispositivo. No se puede deshacer.',
   'Log': 'Registrar',
   'Goal': 'Meta',
   'Plan': 'Plan',

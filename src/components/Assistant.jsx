@@ -261,6 +261,26 @@ function StateBlock({ kind, onOpenWallet }) {
   </div>
 }
 
+// The confirmation before erasing every conversation.
+//
+// It lives HERE and not in sheets.jsx on purpose: that module already imports
+// this one (the exercise sheet opens the coach), so importing its confirmSheet
+// back would make a cycle. The markup is the app's centered dialog, word for
+// word, so it looks like every other confirmation in the product.
+function ConfirmErase({ close, onConfirm }) {
+  return <div style={{ textAlign: 'center', padding: '4px 0' }}>
+    <h3 style={{ marginBottom: 8 }}>{t('Delete all conversations?')}</h3>
+    <div className="muted" style={{ marginBottom: 18, lineHeight: 1.5 }}>
+      {t('The conversations saved on this device will be erased. This cannot be undone.')}
+    </div>
+    <button className="btn danger" onClick={() => { close(); onConfirm && onConfirm() }}>
+      {t('Delete everything')}
+    </button>
+    <div style={{ height: 8 }} />
+    <Button variant="ghost" className="dim" onClick={close}>{t('Cancel')}</Button>
+  </div>
+}
+
 function AssistantPanel({ close, context }) {
   const balance = useStore(s => s.balance)
   const soundEnabled = useStore(s => s.S.sound)
@@ -443,6 +463,14 @@ function AssistantPanel({ close, context }) {
     setThreads(readCoachMemory().threads)
   }
 
+  // Erasing is not undoable, so it asks first. The dialog is the app's own
+  // centered one, opened through the UI store: importing the shared confirmSheet
+  // from sheets.jsx would close a cycle (that module already imports this one).
+  const askEraseEveryThread = () => useUI.getState().openSheet(
+    close => <ConfirmErase close={close} onConfirm={forgetEveryThread} />,
+    { kind: 'center' }
+  )
+
   return <>
     <h3>{t('AI Coach')}</h3>
     <div style={{ marginBottom: 8, fontSize:13, color:'var(--label-2)', lineHeight:1.4 }}>
@@ -493,7 +521,7 @@ function AssistantPanel({ close, context }) {
       {/* The erase control is there as long as there is something to erase: the
           person must never have to hunt for it. */}
       {(threads.length > 0 || msgs.length > 0) && <div style={{ marginTop: 6 }}>
-        <Button variant="danger" icon="trash" onClick={forgetEveryThread}>{t('Delete all conversations')}</Button>
+        <Button variant="danger" icon="trash" onClick={askEraseEveryThread}>{t('Delete all conversations')}</Button>
       </div>}
     </div>
 
