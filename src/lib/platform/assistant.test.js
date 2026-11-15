@@ -2,6 +2,8 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import {
   askAssistant, findGymTariff, fetchAssistantTariff, isOffline, ASSISTANT_PATH,
 } from './assistant.js'
+import { EXDB, imgSrc } from '../exercises.js'
+import { resolveExercises } from '../coach-exercises.js'
 
 const BASE = 'https://api.djlabs.cl'
 
@@ -52,7 +54,6 @@ describe('askAssistant — request shape', () => {
     expect(r.kind).toBe('ok')
     expect(r.answer).toBe('Bench 60kg next week.')
   })
-
   it('carries the conversation_id back to the server on follow-ups', async () => {
     const m = mockFetch([res(200, { answer: 'a1', conversation_id: 'conv-42' }), res(200, { answer: 'a2', conversation_id: 'conv-42' })])
     vi.stubGlobal('fetch', m.impl)
@@ -69,6 +70,62 @@ describe('askAssistant — request shape', () => {
     const body = JSON.parse(m.seen[0].opts.body)
     expect('conversation_id' in body).toBe(true)
     expect(body.conversation_id).toBe(null)
+  })
+})
+
+// The exercise artifact: the catalogue travels WITH the question, because the
+// coach endpoint keeps no memory between questions.
+describe('askAssistant — the exercise artifact', () => {
+  const bench = EXDB.find(ex => ex.id === '0025')
+
+  it('adds the matched exercises to the context lines, first', async () => {
+    const m = mockFetch([res(200, { answer: 'a' })])
+    vi.stubGlobal('fetch', m.impl)
+    await askAssistant('quiero hacer press de banca', {
+      context: { view: 'library', title: 'Ejercicios', lines: ['Search: press de banca'] },
+      exerciseMatches: [bench],
+    })
+    const body = JSON.parse(m.seen[0].opts.body)
+    expect(body.context.lines[0]).toContain(bench.id)
+    expect(body.context.lines[0]).toContain(bench.n)
+    expect(body.context.lines[0]).toContain(imgSrc(bench))
+    expect(body.context.lines).toContain('Search: press de banca')
+  })
+
+  it('keeps the request shape closed — no new field, only the lines change', async () => {
+    const m = mockFetch([res(200, { answer: 'a' })])
+    vi.stubGlobal('fetch', m.impl)
+    await askAssistant('q', { context: { view: 'library', title: 'Ejercicios', lines: [] }, exerciseMatches: [bench] })
+    const body = JSON.parse(m.seen[0].opts.body)
+    expect(Object.keys(body).sort()).toEqual(['context', 'conversation_id', 'heart', 'question'])
+    expect(Object.keys(body.context).sort()).toEqual(['lines', 'title', 'view'])
+  })
+
+  it('a question with no match travels exactly as before', async () => {
+    const m = mockFetch([res(200, { answer: 'a' })])
+    vi.stubGlobal('fetch', m.impl)
+    await askAssistant('hola', { context: { view: 'library', title: 'Ejercicios', lines: ['x'] } })
+    const body = JSON.parse(m.seen[0].opts.body)
+    expect(body.context.lines).toEqual(['x'])
+  })
+
+  it('no context and no match means no context field at all', async () => {
+    const m = mockFetch([res(200, { answer: 'a' })])
+    vi.stubGlobal('fetch', m.impl)
+    await askAssistant('hola')
+    expect('context' in JSON.parse(m.seen[0].opts.body)).toBe(false)
+  })
+
+  it('the artifact is bounded: four lines, each under the platform line limit', async () => {
+    const m = mockFetch([res(200, { answer: 'a' })])
+    vi.stubGlobal('fetch', m.impl)
+    await askAssistant('q', {
+      context: { view: 'library', title: 'Ejercicios', lines: [] },
+      exerciseMatches: resolveExercises('press de banca', { state: { customEx: [] } }),
+    })
+    const body = JSON.parse(m.seen[0].opts.body)
+    expect(body.context.lines.length).toBeLessThanOrEqual(4)
+    expect(body.context.lines.every(line => line.length < 200)).toBe(true)
   })
 })
 

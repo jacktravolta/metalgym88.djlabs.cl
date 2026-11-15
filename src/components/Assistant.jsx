@@ -9,9 +9,10 @@
 // the user can do next. No blame, no urgency, no invented numbers — the per-question
 // cost is only ever shown when the platform itself served it.
 //
-// Privacy: the transcript lives in THIS component's state only — nothing in
-// localStorage, nothing on the next visit. Server-side transcripts are the platform's
-// contract; the client keeps no copy once the sheet closes.
+// Privacy: the transcript lives on THIS device, under the coach threads' own
+// localStorage key. It never enters the store's S blob, so it is never mirrored
+// to the platform. The person can delete a thread or all of them, and signing
+// out erases the local memory.
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
@@ -22,25 +23,22 @@ import { askAssistant, fetchAssistantTariff, isOffline } from '../lib/platform/a
 import { requestMagicLink } from '../lib/platform/auth.js'
 import { buildCoachPayload } from '../lib/coach-context.js'
 import { toSpeechText } from '../lib/speech.js'
+import { resolveExercises, exerciseCards } from '../lib/coach-exercises.js'
+import {
+  MAX_THREAD_MSGS,
+  clearCoachThreads,
+  readCoachMemory,
+  removeCoachThread,
+  restoreThreadMessages,
+  setActiveCoachThread,
+  upsertCoachThread,
+} from '../lib/coach-threads.js'
+import { nav } from '../lib/nav.js'
 import { openWallet } from './Wallet.jsx'
 import Icon from './Icon.jsx'
 import { Button, TextArea, Row, Switch } from './ui.jsx'
 
-// Session-only window: enough context to follow a conversation, small enough that a
-// long chat can't bloat the sheet. Beyond the window older turns are dropped (not
-// stored anywhere — see the privacy note above).
-const MAX_MSGS = 60
-
 const gap = { display: 'grid', gap: 10 }
-
-// Keep transcripts in-memory for the app lifetime (no localStorage). The map survives
-// sheet close/reopen while the tab is alive, so the conversation is not lost when the
-// modal is dismissed. Nothing is persisted to disk.
-const assistantMem = new Map()
-function memKey(context, conversationId) {
-  const ctx = context?.title || context?.id || 'global'
-  return `${ctx}::${conversationId || 'new'}`
-}
 
 // One line of honest copy, reused by the entry points and the panel itself: offline
 // the assistant is the ONLY thing that stops — the log keeps working the same.
@@ -93,56 +91,100 @@ function useTTS() {
   return { speak, stop, speaking, supported }
 }
 
-function Bubble({ m, onSpeak }) {
+// The catalogue exercises the question matched.
+//
+// The cards come from the FRONT's own resolution (lib/coach-exercises.js), not
+// from the model's text: an exercise the catalogue does not have can never
+// reach the screen, and the model can never talk about one the cards do not
+// show. Each card opens the library filtered by that exact exercise.
+//
+// The card shows the exercise ANIMATION (the GIF), not only the still picture:
+// the question is usually "how do I do this?" and the animation IS the answer.
+// The still picture stays as the fallback for an exercise with no animation.
+function ExerciseCards({ cards, onOpen }) {
+  if (!cards || !cards.length) return null
+  return <div style={{ display: 'grid', gap: 6, marginTop: 6 }}>
+    <div className="dim small">{t('Exercises from the catalogue')}</div>
+    {cards.map(card => (
+      <a
+        key={card.id}
+        href={'#' + card.link}
+        onClick={e => { e.preventDefault(); onOpen(card) }}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px 6px 6px',
+          borderRadius: 12, background: 'var(--surface-2)', textDecoration: 'none', color: 'inherit',
+        }}
+      >
+        <img
+          className="thumb"
+          src={card.gifUrl || card.imageUrl}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          width="80"
+          height="80"
+          style={{ width: 80, height: 80, objectFit: 'contain', borderRadius: 10, background: '#fff' }}
+        />
+        <span style={{ flex: 1, minWidth: 0, fontSize: 14, lineHeight: 1.3 }}>{card.name}</span>
+        <Icon name="chevronRight" className="chev" />
+      </a>
+    ))}
+  </div>
+}
+
+function Bubble({ m, onSpeak, onOpenExercise }) {
   const mine = m.role === 'user'
   const isTyping = m.role === 'typing'
+  const cards = mine ? [] : (m.exercises || [])
   return <div style={{ display: 'flex', justifyContent: mine ? 'flex-end' : 'flex-start' }}>
-    <div style={{
-      maxWidth: '86%',
-      padding: '10px 13px',
-      borderRadius: 18,
-      whiteSpace: 'pre-wrap',
-      lineHeight: 1.5,
-      fontSize: 15,
-      background: mine
-        ? 'linear-gradient(135deg, color-mix(in srgb, var(--acc) 22%, transparent), color-mix(in srgb, var(--acc) 12%, transparent))'
-        : 'var(--surface)',
-      color: 'var(--label)',
-      border: mine ? '1px solid color-mix(in srgb, var(--acc) 35%, transparent)' : '1px solid var(--sep)',
-      boxShadow: '0 1px 0 rgba(0,0,0,.04), 0 6px 18px -10px rgba(0,0,0,.35)',
-      borderBottomRightRadius: mine ? 6 : 18,
-      borderBottomLeftRadius: mine ? 18 : 6,
-      position: 'relative',
-    }}>
-      {isTyping ? (
-        <div style={{ display: 'flex', gap: 7, alignItems: 'center', color:'var(--label-2)' }}>
-          <Icon name="spinner" className="spin" />
-          <span style={{ fontSize:13 }}>{t('Thinking…')}</span>
-        </div>
-      ) : (
-        <>
-          <div style={{ paddingRight: 28 }}>
-            {m.text}
-            {m.streaming && <span style={{
-              display:'inline-block', width:2, height:'1em', marginLeft:2,
-              background:'var(--acc)', verticalAlign:'text-bottom', animation:'caret 1s steps(2) infinite'
-            }} />}
+    <div style={{ maxWidth: '86%', minWidth: 0 }}>
+      <div style={{
+        padding: '10px 13px',
+        borderRadius: 18,
+        whiteSpace: 'pre-wrap',
+        lineHeight: 1.5,
+        fontSize: 15,
+        background: mine
+          ? 'linear-gradient(135deg, color-mix(in srgb, var(--acc) 22%, transparent), color-mix(in srgb, var(--acc) 12%, transparent))'
+          : 'var(--surface)',
+        color: 'var(--label)',
+        border: mine ? '1px solid color-mix(in srgb, var(--acc) 35%, transparent)' : '1px solid var(--sep)',
+        boxShadow: '0 1px 0 rgba(0,0,0,.04), 0 6px 18px -10px rgba(0,0,0,.35)',
+        borderBottomRightRadius: mine ? 6 : 18,
+        borderBottomLeftRadius: mine ? 18 : 6,
+        position: 'relative',
+      }}>
+        {isTyping ? (
+          <div style={{ display: 'flex', gap: 7, alignItems: 'center', color:'var(--label-2)' }}>
+            <Icon name="spinner" className="spin" />
+            <span style={{ fontSize:13 }}>{t('Thinking…')}</span>
           </div>
-          {!mine && (
-            <button
-              onClick={() => onSpeak && onSpeak(m.text)}
-              title={t('Listen')}
-              style={{
-                position:'absolute', right:6, bottom:6,
-                background:'transparent', border:'none', color:'var(--label-3)',
-                fontSize:16, cursor:'pointer', padding:4, borderRadius:8
-              }}
-            >
-              <Icon name="volumeHigh" />
-            </button>
-          )}
-        </>
-      )}
+        ) : (
+          <>
+            <div style={{ paddingRight: 28 }}>
+              {m.text}
+              {m.streaming && <span style={{
+                display:'inline-block', width:2, height:'1em', marginLeft:2,
+                background:'var(--acc)', verticalAlign:'text-bottom', animation:'caret 1s steps(2) infinite'
+              }} />}
+            </div>
+            {!mine && (
+              <button
+                onClick={() => onSpeak && onSpeak(m.text)}
+                title={t('Listen')}
+                style={{
+                  position:'absolute', right:6, bottom:6,
+                  background:'transparent', border:'none', color:'var(--label-3)',
+                  fontSize:16, cursor:'pointer', padding:4, borderRadius:8
+                }}
+              >
+                <Icon name="volumeHigh" />
+              </button>
+            )}
+          </>
+        )}
+      </div>
+      {cards.length > 0 && <ExerciseCards cards={cards} onOpen={onOpenExercise} />}
     </div>
   </div>
 }
@@ -229,16 +271,16 @@ function AssistantPanel({ close, context }) {
   const coachVoice = useStore(s => s.S.coachVoice !== false)
   const setCoachSound = v => useStore.getState().update(s => { s.coachSound = v })
   const setCoachVoice = v => useStore.getState().update(s => { s.coachVoice = v })
-  const [msgs, setMsgs] = useState([])
+  const [msgs, setMsgs] = useState([])       // [{ role, text, id, exercises }] — the transcript
   const [input, setInput] = useState('')
   const [conversationId, setConversationId] = useState(null)
+  const [threads, setThreads] = useState([]) // the conversations saved on this device
   const [sending, setSending] = useState(false)
-  const [kind, setKind] = useState(null)
-  const [tariff, setTariff] = useState(undefined)
+  const [kind, setKind] = useState(null)     // null | 'not_available' | 'insufficient_credits' | 'auth' | 'error'
+  const [tariff, setTariff] = useState(undefined) // undefined = loading, null = not served, { cost } = served
   const online = useOnline()
   const listRef = useRef(null)
   const { speak, stop, speaking } = useTTS()
-  const key = memKey(context, null)
   const [reveal, setReveal] = useState(null)   // { id, idx, full } — the write-out of a long answer
   const lang = useStore(s => s.S.lang) || 'es'
   const ttsLang = lang === 'en' ? 'en-US' : 'es-ES'
@@ -254,20 +296,18 @@ function AssistantPanel({ close, context }) {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) window.speechSynthesis.cancel()
   }, [])
 
+  // The panel opens on the conversation this device already has: a refresh, a tab
+  // close or a navigation must not wipe the thread. The transcript, its conversation
+  // id and the exercise cards come back exactly as they were left.
   useEffect(() => {
-    const k = memKey(context, conversationId)
-    const saved = assistantMem.get(k)
-    if (saved && saved.length) setMsgs(saved)
-    else {
-      const init = conversationId ? assistantMem.get(memKey(context, conversationId)) : assistantMem.get(key)
-      if (init) setMsgs(init)
-    }
-  }, [context, conversationId])
-
-  useEffect(() => {
-    if (!conversationId) return
-    assistantMem.set(memKey(context, conversationId), msgs.map(m => ({ ...m, streaming: false })))
-  }, [msgs, context, conversationId])
+    const memory = readCoachMemory()
+    setThreads(memory.threads)
+    if (!memory.activeConversationId) return
+    const thread = memory.threads.find(item => item.conversationId === memory.activeConversationId)
+    if (!thread) return
+    setConversationId(thread.conversationId)
+    setMsgs(restoreThreadMessages(thread.messages))
+  }, [])
 
   // Keep the newest bubble in view — including while a long answer is being written out.
   useEffect(() => {
@@ -329,28 +369,79 @@ function AssistantPanel({ close, context }) {
     if (!q || disabled) return
     setInput('')
     setKind(null)
-    setMsgs(m => [...m, { role: 'user', text: q }].slice(-MAX_MSGS))
+    // The catalogue is resolved from THIS question, at THIS moment: the artifact
+    // the coach receives and the cards the answer shows have to talk about the
+    // same exercises, and the question is the only thing that knows which ones.
+    const matches = resolveExercises(q, { state: useStore.getState().S })
+    const id = `m${Date.now()}`
+    const question = { role: 'user', text: q }
+    const answer = { role: 'assistant', text: '', id, streaming: true, exercises: exerciseCards(matches) }
+    // The window of the conversation: the thread's own window governs the panel and
+    // the saved thread alike — one window, one rule.
+    const history = msgs.filter(m => m.role !== 'typing')
+    const next = [...history, question, answer].slice(-MAX_THREAD_MSGS)
+    setMsgs(m => [...m.filter(x => x.role !== 'typing'), question, { role: 'typing' }].slice(-MAX_THREAD_MSGS))
     setSending(true)
-    setMsgs(m => [...m, { role: 'typing' }])
-    const r = await askAssistant(q, { conversationId, context })
+    const r = await askAssistant(q, { conversationId, context, exerciseMatches: matches })
     setSending(false)
-    setMsgs(m => m.filter(x => x.role !== 'typing'))
     if (r.kind === 'ok') {
       if (r.balance != null) useStore.setState({ balance: r.balance })
-      if (r.conversationId) setConversationId(r.conversationId)
-      const id = `m${Date.now()}`
-      const ans = { role: 'assistant', text: '', id, streaming: true }
-      setMsgs(m => [...m, ans].slice(-MAX_MSGS))
+      const nextConversationId = r.conversationId || conversationId
+      if (nextConversationId) setConversationId(nextConversationId)
+      setMsgs(m => [...m.filter(x => x.role !== 'typing'), answer].slice(-MAX_THREAD_MSGS))
       setReveal({ id, idx: 0, full: r.answer })
       playTick()
       if (coachVoice) speak(r.answer, ttsLang)
+      // The thread is saved on THIS device right away: a refresh must not lose it,
+      // and nothing about it is sent to the platform. The memory holds the FINAL
+      // text — the write-out on screen is only a display effect.
+      if (nextConversationId) {
+        upsertCoachThread(nextConversationId, next.map(m => (m.id === id ? { ...m, text: r.answer, streaming: false } : m)))
+        setThreads(readCoachMemory().threads)
+      }
     } else {
       setInput(q)
       setKind(r.kind)
     }
   }
 
+  // A card opens the library with that exercise in it. The sheet closes first,
+  // so the person lands on the library and not behind a panel.
+  const openExercise = card => { close(); nav(card.link) }
+
+  // Stacks the wallet ON TOP of this panel: closing the wallet brings the chat back
+  // with the question still in the box, exactly as the state copy promises it.
   const openWalletHere = () => openWallet()
+
+  // The conversations saved on this device: resume one, start a new one, delete the
+  // ones the person does not want. None of this leaves the device.
+  const newConversation = () => {
+    setMsgs([]); setConversationId(null); setKind(null); setReveal(null)
+    setActiveCoachThread(null)
+    setThreads(readCoachMemory().threads)
+  }
+
+  const resumeThread = thread => {
+    setConversationId(thread.conversationId)
+    setMsgs(restoreThreadMessages(thread.messages))
+    setKind(null); setReveal(null)
+    setActiveCoachThread(thread.conversationId)
+  }
+
+  const deleteThread = threadId => {
+    removeCoachThread(threadId)
+    if (threadId === conversationId) { setMsgs([]); setConversationId(null); setReveal(null) }
+    setThreads(readCoachMemory().threads)
+  }
+
+  // Erases EVERY conversation on this device: the memory, the panel's transcript and
+  // the active thread. The key itself is removed, so nothing is left to restore.
+  const forgetEveryThread = () => {
+    clearCoachThreads()
+    setActiveCoachThread(null)
+    setMsgs([]); setConversationId(null); setKind(null); setReveal(null)
+    setThreads(readCoachMemory().threads)
+  }
 
   return <>
     <h3>{t('AI Coach')}</h3>
@@ -369,6 +460,41 @@ function AssistantPanel({ close, context }) {
       <label style={{ display:'flex', alignItems:'center', gap:6 }}>
         <Switch checked={coachVoice} onChange={setCoachVoice} /> {t('Auto read answers')}
       </label>
+    </div>
+
+    {/* The conversations saved on this device. They never leave it. */}
+    <div style={{ marginBottom: 8 }}>
+      <div className="row between" style={{ alignItems: 'center', gap: 8 }}>
+        <span className="dim small">{t('Your conversations')}</span>
+        <Button variant="ghost" className="dim" disabled={sending} onClick={newConversation}>{t('New conversation')}</Button>
+      </div>
+      {threads.length > 0 && <div style={{ display: 'grid', gap: 2, marginTop: 6, maxHeight: 120, overflowY: 'auto' }}>
+        {threads.map(thread => {
+          const active = thread.conversationId === conversationId
+          return <div key={thread.conversationId} className="row between" style={{ padding: '3px 0', gap: 8 }}>
+            <button
+              onClick={() => resumeThread(thread)}
+              disabled={sending}
+              style={{
+                flex: 1, minWidth: 0, textAlign: 'left', border: 'none', background: 'transparent',
+                color: active ? 'var(--acc)' : 'var(--label)', font: 'inherit', padding: 0,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer',
+              }}
+            >{thread.title || t('Conversation')}</button>
+            <button
+              onClick={() => deleteThread(thread.conversationId)}
+              disabled={sending}
+              aria-label={t('Delete')}
+              style={{ border: 'none', background: 'transparent', color: 'var(--grey)', font: 'inherit', padding: '0 4px', cursor: 'pointer' }}
+            >×</button>
+          </div>
+        })}
+      </div>}
+      {/* The erase control is there as long as there is something to erase: the
+          person must never have to hunt for it. */}
+      {(threads.length > 0 || msgs.length > 0) && <div style={{ marginTop: 6 }}>
+        <Button variant="danger" icon="trash" onClick={forgetEveryThread}>{t('Delete all conversations')}</Button>
+      </div>}
     </div>
 
     {/* One global stop: it ends the voice and finishes the write-out at once, so the
@@ -395,7 +521,7 @@ function AssistantPanel({ close, context }) {
       background: 'color-mix(in srgb, var(--surface) 60%, transparent)', borderRadius:12
     }}>
       {msgs.map((m, i) => (
-        <Bubble key={m.id || i} m={m} onSpeak={(text)=>{ speak(text, ttsLang); playTick() }} />
+        <Bubble key={m.id || i} m={m} onSpeak={(text)=>{ speak(text, ttsLang); playTick() }} onOpenExercise={openExercise} />
       ))}
       {/* Progress of the write-out: a hairline that fills while the answer appears. */}
       {reveal && (

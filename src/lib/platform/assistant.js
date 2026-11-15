@@ -5,7 +5,9 @@
 // carries the remaining balance, so the UI can refresh "Saldo restante" after every
 // completion. Conversation continuity rides on the platform's /chat/completions
 // contract shape: the server hands back a conversation_id and every follow-up sends
-// it again — transcripts live server-side only.
+// it again. The transcript itself lives on the DEVICE, under the coach threads' own
+// localStorage key — never in the store blob the platform mirrors — see
+// lib/coach-threads.js.
 //
 // The request body carries three things: the question, the conversation it belongs to
 // and the heart. A fourth one is OPTIONAL — `context`, the summary of the screen the
@@ -22,6 +24,7 @@
 import { phttp } from './http.js'
 import { HEART } from './config.js'
 import { fetchTariffs } from './wallet.js'
+import { buildExerciseArtifact, MAX_COACH_CONTEXT_CHARS } from '../coach-exercises.js'
 
 export const ASSISTANT_PATH = '/opengym/ai'
 
@@ -79,17 +82,74 @@ function readOperationId(d) {
 
 /* ============================ the call ============================ */
 
-// askAssistant('…', { conversationId, context }) → one of:
+// The platform's own caps for the context it receives (40 characters for the
+// view, 120 for the title, 200 per line, 1.200 for the whole context). They
+// are restated here on purpose: this layer talks to the platform and must not
+// import the front's context builder (lib/coach-context.js), which pulls the
+// store — and a DOM — into a module that has to stay testable on its own.
+const MAX_CONTEXT_LINES = 40
+const MAX_CONTEXT_LINE_CHARS = 200
+const MAX_CONTEXT_VIEW_CHARS = 40
+const MAX_CONTEXT_TITLE_CHARS = 120
+
+// The platform renders the context as text (a few labels of its own around
+// the lines) and caps the WHOLE thing at 1.200 characters. This reserve is
+// what that rendering costs on top of the lines themselves: guessing the
+// exact wording would be a guess, so the budget keeps room for it instead.
+const CONTEXT_LABEL_RESERVE = 80
+
+function cleanContextValue(value, max) {
+  return String(value || '')
+    .replace(/[\x00-\x1F\x7F]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max)
+}
+
+// What the context costs once the platform renders it.
+function contextCost(view, title, lines) {
+  return view.length + title.length + CONTEXT_LABEL_RESERVE + lines.reduce((n, line) => n + line.length + 2, 0)
+}
+
+// The exercise artifact goes FIRST: the platform truncates the tail, and the
+// artifact is the part tied to THIS question — the screen context can wait.
+function contextWithExercises(context, matches) {
+  const artifact = buildExerciseArtifact(matches)
+  if (artifact.length === 0) return context
+
+  const source = context && typeof context === 'object' ? context : {}
+  const view = cleanContextValue(source.view, MAX_CONTEXT_VIEW_CHARS)
+  const title = cleanContextValue(source.title, MAX_CONTEXT_TITLE_CHARS)
+  const existing = Array.isArray(source.lines) ? source.lines : []
+  const candidates = [...artifact, ...existing]
+  const lines = []
+
+  for (const candidate of candidates) {
+    if (lines.length >= MAX_CONTEXT_LINES) break
+    const line = cleanContextValue(candidate, MAX_CONTEXT_LINE_CHARS)
+    if (!line) continue
+    if (contextCost(view, title, [...lines, line]) <= MAX_COACH_CONTEXT_CHARS) {
+      lines.push(line)
+    }
+  }
+
+  return { view: view || 'coach', title, lines }
+}
+
+// askAssistant('…', { conversationId, context, exerciseMatches }) → one of:
 //   { kind: 'ok', answer, conversationId, balance, operationId, status: null }
 //   { kind: 'not_available' | 'insufficient_credits' | 'auth' | 'error', status, … }
 // Never throws: every failure is a classified kind the UI can speak kindly.
-// `context` is the optional screen summary — sent only when there is one.
-export async function askAssistant(question, { conversationId = null, context = null } = {}) {
+// `context` is the optional screen summary. `exerciseMatches` are catalogue
+// exercises resolved from THIS question; their compact artifact is added to
+// the request context here, at send time, and never when the panel opens.
+export async function askAssistant(question, { conversationId = null, context = null, exerciseMatches = [] } = {}) {
+  const requestContext = contextWithExercises(context, exerciseMatches)
   const body = JSON.stringify({
     question,
     conversation_id: conversationId || null,
     heart: HEART,
-    ...(context ? { context } : {}),
+    ...(requestContext ? { context: requestContext } : {}),
   })
   let d, status = null
   try {
