@@ -330,6 +330,8 @@ h4.sec{
   border:2px solid var(--orange);animation:ping 1.9s var(--ease) infinite;
 }
 @keyframes ping{0%{transform:scale(1);opacity:.7}100%{transform:scale(1.45);opacity:0}}
+/* The caret on an answer that is still being written out (AI Coach). */
+@keyframes caret{0%,45%{opacity:1}50%,95%{opacity:0}100%{opacity:1}}
 /* Desktop-rail extras: the brand line and the two entries the phone bar doesn't
    have (History, Settings). Hidden here so the phone bar keeps its five items —
    the desktop media query turns them on. */

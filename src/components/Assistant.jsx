@@ -23,14 +23,23 @@ import { requestMagicLink } from '../lib/platform/auth.js'
 import { buildCoachPayload } from '../lib/coach-context.js'
 import { openWallet } from './Wallet.jsx'
 import Icon from './Icon.jsx'
-import { Button, TextArea, Row } from './ui.jsx'
+import { Button, TextArea, Row, Switch } from './ui.jsx'
 
 // Session-only window: enough context to follow a conversation, small enough that a
 // long chat can't bloat the sheet. Beyond the window older turns are dropped (not
 // stored anywhere — see the privacy note above).
-const MAX_MSGS = 30
+const MAX_MSGS = 60
 
 const gap = { display: 'grid', gap: 10 }
+
+// Keep transcripts in-memory for the app lifetime (no localStorage). The map survives
+// sheet close/reopen while the tab is alive, so the conversation is not lost when the
+// modal is dismissed. Nothing is persisted to disk.
+const assistantMem = new Map()
+function memKey(context, conversationId) {
+  const ctx = context?.title || context?.id || 'global'
+  return `${ctx}::${conversationId || 'new'}`
+}
 
 // One line of honest copy, reused by the entry points and the panel itself: offline
 // the assistant is the ONLY thing that stops — the log keeps working the same.
@@ -49,16 +58,86 @@ function useOnline() {
   return online
 }
 
-function Bubble({ m }) {
+// Text-to-speech over the browser's own SpeechSynthesis API — no asset, no network,
+// no server round-trip. `speaking` lets the panel show a stop control only while
+// there is actually audio to stop.
+function useTTS() {
+  const [speaking, setSpeaking] = useState(false)
+  const supported = typeof window !== 'undefined' && 'speechSynthesis' in window
+  const speak = (text, lang = 'es-ES') => {
+    if (!supported || !text) return false
+    const u = new SpeechSynthesisUtterance(text)
+    u.lang = lang
+    u.rate = 1
+    u.onstart = () => setSpeaking(true)
+    u.onend = () => setSpeaking(false)
+    u.onerror = () => setSpeaking(false)
+    window.speechSynthesis.cancel()
+    // Set the flag here as well as on `onstart`: some engines fire it late (or not at
+    // all), and the stop control has to be there the moment the voice starts.
+    setSpeaking(true)
+    window.speechSynthesis.speak(u)
+    return true
+  }
+  const stop = () => {
+    if (!supported) return
+    window.speechSynthesis.cancel()
+    setSpeaking(false)
+  }
+  return { speak, stop, speaking, supported }
+}
+
+function Bubble({ m, onSpeak }) {
   const mine = m.role === 'user'
+  const isTyping = m.role === 'typing'
   return <div style={{ display: 'flex', justifyContent: mine ? 'flex-end' : 'flex-start' }}>
     <div style={{
-      maxWidth: '86%', padding: '9px 12px', borderRadius: 14, whiteSpace: 'pre-wrap', lineHeight: 1.45,
+      maxWidth: '86%',
+      padding: '10px 13px',
+      borderRadius: 18,
+      whiteSpace: 'pre-wrap',
+      lineHeight: 1.5,
       fontSize: 15,
-      background: mine ? 'color-mix(in srgb, var(--acc) 18%, transparent)' : 'var(--surface-3)',
-      borderBottomRightRadius: mine ? 4 : 14,
-      borderBottomLeftRadius: mine ? 14 : 4,
-    }}>{m.text}</div>
+      background: mine
+        ? 'linear-gradient(135deg, color-mix(in srgb, var(--acc) 22%, transparent), color-mix(in srgb, var(--acc) 12%, transparent))'
+        : 'var(--surface)',
+      color: 'var(--label)',
+      border: mine ? '1px solid color-mix(in srgb, var(--acc) 35%, transparent)' : '1px solid var(--sep)',
+      boxShadow: '0 1px 0 rgba(0,0,0,.04), 0 6px 18px -10px rgba(0,0,0,.35)',
+      borderBottomRightRadius: mine ? 6 : 18,
+      borderBottomLeftRadius: mine ? 18 : 6,
+      position: 'relative',
+    }}>
+      {isTyping ? (
+        <div style={{ display: 'flex', gap: 7, alignItems: 'center', color:'var(--label-2)' }}>
+          <Icon name="sparkles" />
+          <span style={{ fontSize:13 }}>{t('Thinking…')}</span>
+        </div>
+      ) : (
+        <>
+          <div style={{ paddingRight: 28 }}>
+            {m.text}
+            {m.streaming && <span style={{
+              display:'inline-block', width:2, height:'1em', marginLeft:2,
+              background:'var(--acc)', verticalAlign:'text-bottom', animation:'caret 1s steps(2) infinite'
+            }} />}
+          </div>
+          {!mine && (
+            <button
+              onClick={() => onSpeak && onSpeak(m.text)}
+              title={t('Listen')}
+              style={{
+                position:'absolute', right:6, bottom:6,
+                background:'transparent', border:'none', color:'var(--label-3)',
+                fontSize:16, cursor:'pointer', padding:4, borderRadius:8
+              }}
+            >
+              <Icon name="volumeHigh" />
+            </button>
+          )}
+        </>
+      )}
+    </div>
   </div>
 }
 
@@ -136,28 +215,100 @@ function StateBlock({ kind, onOpenWallet }) {
 
 function AssistantPanel({ close, context }) {
   const balance = useStore(s => s.balance)
-  const [msgs, setMsgs] = useState([])       // [{ role, text }] — component state ONLY
+  const soundEnabled = useStore(s => s.S.sound)
+  const [msgs, setMsgs] = useState([])
   const [input, setInput] = useState('')
   const [conversationId, setConversationId] = useState(null)
   const [sending, setSending] = useState(false)
-  const [kind, setKind] = useState(null)     // null | 'not_available' | 'insufficient_credits' | 'auth' | 'error'
-  const [tariff, setTariff] = useState(undefined) // undefined = loading, null = not served, { cost } = served
+  const [kind, setKind] = useState(null)
+  const [tariff, setTariff] = useState(undefined)
+  const [soundOn, setSoundOn] = useState(true)
+  const [ttsAuto, setTtsAuto] = useState(false)
   const online = useOnline()
   const listRef = useRef(null)
+  const { speak, stop, speaking } = useTTS()
+  const key = memKey(context, null)
+  const [reveal, setReveal] = useState(null)   // { id, idx, full } — the write-out of a long answer
+  const lang = useStore(s => s.S.lang) || 'es'
+  const ttsLang = lang === 'en' ? 'en-US' : 'es-ES'
 
-  // Tariff BEFORE sending: only what the platform serves. Nothing cached, nothing
-  // invented — if the row isn't there, the honest copy is "shown when you confirm".
   useEffect(() => {
     let alive = true
     fetchAssistantTariff().then(r => { if (alive) setTariff(r) })
     return () => { alive = false }
   }, [])
 
-  // Keep the newest bubble in view.
+  // Closing the sheet must not leave the coach talking in the background.
+  useEffect(() => () => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) window.speechSynthesis.cancel()
+  }, [])
+
+  useEffect(() => {
+    const k = memKey(context, conversationId)
+    const saved = assistantMem.get(k)
+    if (saved && saved.length) setMsgs(saved)
+    else {
+      const init = conversationId ? assistantMem.get(memKey(context, conversationId)) : assistantMem.get(key)
+      if (init) setMsgs(init)
+    }
+  }, [context, conversationId])
+
+  useEffect(() => {
+    if (!conversationId) return
+    assistantMem.set(memKey(context, conversationId), msgs.map(m => ({ ...m, streaming: false })))
+  }, [msgs, context, conversationId])
+
+  // Keep the newest bubble in view — including while a long answer is being written out.
   useEffect(() => {
     const el = listRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [msgs.length, sending])
+  }, [msgs.length, sending, reveal && reveal.idx])
+
+  // Write the answer out progressively. The platform answers in one shot, so a long
+  // answer would otherwise land as a single wall of text with no sign of life; the
+  // reveal gives the same "it is being written" feedback a streaming backend would.
+  useEffect(() => {
+    if (!reveal) return
+    if (reveal.idx >= reveal.full.length) {
+      setReveal(null)
+      setMsgs(m => m.map(x => x.id === reveal.id ? { ...x, text: reveal.full, streaming: false } : x))
+      return
+    }
+    const chunk = Math.max(2, Math.ceil(reveal.full.length / 220))
+    const id = setTimeout(() => {
+      const next = Math.min(reveal.full.length, reveal.idx + chunk)
+      setMsgs(m => m.map(x => x.id === reveal.id ? { ...x, text: reveal.full.slice(0, next) } : x))
+      setReveal(r => (r && r.id === reveal.id ? { ...r, idx: next } : r))
+    }, 14)
+    return () => clearTimeout(id)
+  }, [reveal])
+
+  // One control stops everything the coach is doing out loud: the voice AND the
+  // write-out. Nothing is left half-spoken or half-written.
+  const stopAll = () => {
+    stop()
+    if (reveal) {
+      setMsgs(m => m.map(x => x.id === reveal.id ? { ...x, text: reveal.full, streaming: false } : x))
+      setReveal(null)
+    }
+  }
+
+  const playTick = () => {
+    if (!soundEnabled || !soundOn) return
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)()
+      const o = ctx.createOscillator()
+      const g = ctx.createGain()
+      o.type = 'sine'
+      o.frequency.value = 880
+      g.gain.setValueAtTime(0.0001, ctx.currentTime)
+      g.gain.exponentialRampToValueAtTime(0.15, ctx.currentTime + 0.01)
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.12)
+      o.connect(g).connect(ctx.destination)
+      o.start()
+      o.stop(ctx.currentTime + 0.13)
+    } catch {}
+  }
 
   const offline = !online
   const disabled = sending || offline
@@ -165,49 +316,86 @@ function AssistantPanel({ close, context }) {
   const send = async () => {
     const q = input.trim()
     if (!q || disabled) return
-    setInput(''); setSending(true); setKind(null)
+    setInput('')
+    setKind(null)
+    setMsgs(m => [...m, { role: 'user', text: q }].slice(-MAX_MSGS))
+    setSending(true)
+    setMsgs(m => [...m, { role: 'typing' }])
     const r = await askAssistant(q, { conversationId, context })
     setSending(false)
+    setMsgs(m => m.filter(x => x.role !== 'typing'))
     if (r.kind === 'ok') {
-      // Balance refreshes after EVERY completion — the metered feature says what it cost.
       if (r.balance != null) useStore.setState({ balance: r.balance })
       if (r.conversationId) setConversationId(r.conversationId)
-      setKind(null)
-      setMsgs(m => [...m, { role: 'user', text: q }, { role: 'assistant', text: r.answer }].slice(-MAX_MSGS))
+      const id = `m${Date.now()}`
+      const ans = { role: 'assistant', text: '', id, streaming: true }
+      setMsgs(m => [...m, ans].slice(-MAX_MSGS))
+      setReveal({ id, idx: 0, full: r.answer })
+      playTick()
+      if (ttsAuto) speak(r.answer, ttsLang)
     } else {
-      // The question goes back in the box: the copy promises it is still there.
       setInput(q)
       setKind(r.kind)
     }
   }
 
-  // Stacks the wallet ON TOP of this panel: closing the wallet brings the chat back
-  // with the question still in the box, exactly as the state copy promises it.
   const openWalletHere = () => openWallet()
 
   return <>
     <h3>{t('AI Coach')}</h3>
-    <div className="muted small" style={{ marginBottom: 8, lineHeight: 1.5 }}>
-      {/* Persona naming is server-driven later (per-heart persona in T6); a generic,
-          language-neutral product name for now. */}
+    <div style={{ marginBottom: 8, fontSize:13, color:'var(--label-2)', lineHeight:1.4 }}>
       {t('AI assistant of metalgym88')} · {t('reads your synced training data')}
       {balance != null && <> · {t(balance === 1 ? '{0} credit available' : '{0} credits available', balance)}</>}
     </div>
 
-    {/* What the coach is being told about: the screen the user opened it from. One quiet
-        line — the details live in the payload, not on screen. */}
-    {context && context.title && <div className="dim small" style={{ marginBottom: 8 }}>
-      {t('About: {0}', context.title)}
-    </div>}
-
+    {context && context.title && <div className="dim small" style={{ marginBottom: 8 }}>{t('About: {0}', context.title)}</div>}
     {offline && <div className="dim small" style={{ marginBottom: 8, lineHeight: 1.5 }}>{OFFLINE_LINE()}</div>}
 
-    {msgs.length > 0 && <div ref={listRef} style={{
-      display: 'grid', gap: 8, maxHeight: '38vh', overflowY: 'auto',
-      padding: '4px 2px', marginBottom: 10,
+    <div style={{ display:'flex', gap:12, alignItems:'center', margin:'8px 0 10px', fontSize:13, color:'var(--label-2)' }}>
+      <label style={{ display:'flex', alignItems:'center', gap:6 }}>
+        <Switch checked={soundOn} onChange={setSoundOn} /> {t('Sound on reply')}
+      </label>
+      <label style={{ display:'flex', alignItems:'center', gap:6 }}>
+        <Switch checked={ttsAuto} onChange={setTtsAuto} /> {t('Auto read answers')}
+      </label>
+    </div>
+
+    {/* One global stop: it ends the voice and finishes the write-out at once, so the
+        answer is never left half-spoken or half-written. */}
+    {(speaking || reveal) && (
+      <button
+        onClick={stopAll}
+        style={{
+          display:'flex', alignItems:'center', justifyContent:'center', gap:6,
+          width:'100%', padding:'9px 12px', marginBottom:10,
+          borderRadius:12, fontSize:14, fontWeight:500,
+          background:'color-mix(in srgb, var(--red) 16%, transparent)',
+          color:'var(--red)',
+        }}
+      >
+        <Icon name="stop" />
+        <span>{t('Stop')}</span>
+      </button>
+    )}
+
+    <div ref={listRef} style={{
+      display: 'grid', gap: 10, maxHeight: '42vh', overflowY: 'auto',
+      padding: '6px 2px', marginBottom: 12, scrollBehavior: 'smooth',
+      background: 'color-mix(in srgb, var(--surface) 60%, transparent)', borderRadius:12
     }}>
-      {msgs.map((m, i) => <Bubble key={i} m={m} />)}
-    </div>}
+      {msgs.map((m, i) => (
+        <Bubble key={m.id || i} m={m} onSpeak={(text)=>{ speak(text, ttsLang); playTick() }} />
+      ))}
+      {/* Progress of the write-out: a hairline that fills while the answer appears. */}
+      {reveal && (
+        <div style={{ height:2, borderRadius:99, background:'var(--surface-2)', overflow:'hidden' }}>
+          <div style={{
+            height:'100%', width:`${Math.round((reveal.idx / Math.max(1, reveal.full.length)) * 100)}%`,
+            background:'var(--acc)', transition:'width 120ms linear'
+          }} />
+        </div>
+      )}
+    </div>
 
     {kind && <div style={{ marginBottom: 10 }}><StateBlock kind={kind} onOpenWallet={openWalletHere} /></div>}
 
@@ -221,13 +409,8 @@ function AssistantPanel({ close, context }) {
       onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
     />
 
-    {/* Cost per question, only when the platform served it — never a guessed number. */}
     <div className="dim small" style={{ marginBottom: 10, lineHeight: 1.5 }}>
-      {tariff === undefined
-        ? '…'
-        : tariff
-          ? t(tariff.cost === 1 ? '{0} credit per question.' : '{0} credits per question.', tariff.cost)
-          : t('The cost is shown when you confirm.')}
+      {tariff === undefined ? '…' : tariff ? t(tariff.cost === 1 ? '{0} credit per question.' : '{0} credits per question.', tariff.cost) : t('The cost is shown when you confirm.')}
     </div>
 
     <div style={gap}>
