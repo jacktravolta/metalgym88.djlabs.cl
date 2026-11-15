@@ -51,6 +51,25 @@ describe('resolveExercises', () => {
     expect(matches.every(ex => ex.bp === 'waist' || ex.tg === 'abs')).toBe(true)
   })
 
+  it('a request for a picture without naming an exercise still finds the catalogue', () => {
+    const matches = resolveExercises('puedes mostrarme cualquier foto del catálogo', { state })
+    expect(matches.length).toBeGreaterThan(0)
+    expect(matches.length).toBeLessThanOrEqual(MAX_COACH_ARTIFACT_EXERCISES)
+    expect(matches.every(ex => catalogIds.has(ex.id))).toBe(true)
+  })
+
+  it('the person\'s own plan comes first when they ask to see the catalogue', () => {
+    const ex = EXDB.find(item => item.id === '0001')
+    const planned = { customEx: [], routines: [{ id: 'r1', name: 'Push', ex: [{ id: ex.id }] }] }
+    const matches = resolveExercises('muéstrame una foto del catálogo', { state: planned })
+    expect(matches.map(item => item.id)).toContain(ex.id)
+  })
+
+  it('a question that is not about seeing an exercise stays empty', () => {
+    expect(resolveExercises('hola, que tal estas?', { state })).toEqual([])
+    expect(resolveExercises('gracias!', { state })).toEqual([])
+  })
+
   it('a match is a whole word: "tal" is not inside "toques de talón"', () => {
     expect(resolveExercises('tal', { state })).toEqual([])
   })
@@ -72,21 +91,28 @@ describe('buildExerciseArtifact', () => {
     expect(lines.every(line => line.length < MAX_COACH_ARTIFACT_LINE_CHARS)).toBe(true)
   })
 
-  it('includes the catalogue id, name, muscle group and image URL', () => {
+  it('includes the exercise name, the muscle group and the animation URL', () => {
     const ex = EXDB.find(item => item.id === '0001')
     const [line] = buildExerciseArtifact([ex])
 
-    expect(line).toContain(ex.id)
     expect(line).toContain(ex.n)
     expect(line).toContain(EXERCISE_LABELS[ex.tg] || EXERCISE_LABELS[ex.bp])
-    expect(line).toContain(imgSrc(ex))
+    expect(line).toContain(gifSrc(ex))
+  })
+
+  it('tells the model that an animation is attached, so it does not refuse', () => {
+    const ex = EXDB.find(item => item.id === '0001')
+    const [line] = buildExerciseArtifact([ex])
+
+    expect(line).toContain('catálogo:')
+    expect(line).toContain('animación')
   })
 
   it('never ends a line in a broken URL', () => {
     buildExerciseArtifact(EXDB).forEach(line => {
-      const url = line.split('|')[3]
+      const url = line.slice(line.lastIndexOf('https://') >= 0 ? line.lastIndexOf('https://') : line.lastIndexOf('http://'))
       expect(url.startsWith('http')).toBe(true)
-      expect(url.endsWith('.jpg')).toBe(true)
+      expect(url.endsWith('.gif') || url.endsWith('.jpg')).toBe(true)
     })
   })
 

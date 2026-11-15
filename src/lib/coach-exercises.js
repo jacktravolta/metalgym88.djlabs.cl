@@ -124,6 +124,29 @@ function labelWordsOf(value) {
 
 /* ============================ the question ============================ */
 
+// The words that mean "I want to SEE it". The catalogue is 1.324 exercises and
+// every one of them has an animation, and the chat renders them. When the
+// person asks for a picture, the INTENT is the signal — even when no exercise
+// is named. Without this, "muéstrame cualquier foto del catálogo" found
+// nothing, and the coach answered that it could not show pictures.
+const MEDIA_WORDS = new Set([
+  'foto', 'fotos', 'fotografia', 'fotografias', 'imagen', 'imagenes',
+  'animacion', 'animaciones', 'video', 'videos', 'gif',
+  'photo', 'photos', 'picture', 'pictures', 'image', 'images', 'animation', 'animations',
+])
+
+// The words that only say HOW to look at it ("muéstrame", "ver").
+const SHOW_WORDS = new Set([
+  'mostrar', 'mostrame', 'muestrame', 'muestra', 'ensename', 'ensena', 'enseña',
+  'ver', 'mira', 'mirar', 'show', 'muestra',
+])
+
+// True when the question is about SEEING an exercise rather than about
+// training with it.
+function wantsMedia(tokens) {
+  return tokens.some(token => MEDIA_WORDS.has(token) || SHOW_WORDS.has(token))
+}
+
 // Framing words are not exercise terms. They are removed only from the EDGES
 // of a candidate phrase, so a useful phrase such as "press de banca" keeps
 // its interior connector and still matches the catalogue name.
@@ -166,6 +189,50 @@ function phraseCandidates(tokens) {
 function boundedLimit(limit) {
   const requested = Number.isFinite(limit) ? Math.trunc(limit) : MAX_COACH_ARTIFACT_EXERCISES
   return Math.max(0, Math.min(MAX_COACH_ARTIFACT_EXERCISES, requested))
+}
+
+// The exercises of the person's OWN plan: the session in progress first, then
+// the routines. When somebody asks for "any photo from the catalogue", the
+// honest answer is a photo of what they are training — and those are real
+// catalogue exercises, never an invented list.
+function planExercises(state, max) {
+  const st = state || {}
+  const ids = []
+  const push = id => { if (id != null && !ids.includes(id)) ids.push(id) }
+
+  const active = st.active
+  if (active && Array.isArray(active.entries)) active.entries.forEach(e => push(e && e.id))
+  const routines = Array.isArray(st.routines) ? st.routines : []
+  routines.forEach(r => { if (r && Array.isArray(r.ex)) r.ex.forEach(e => push(e && e.id)) })
+
+  const out = []
+  for (const id of ids) {
+    const ex = CATALOG.get(String(id))
+    if (!ex || !ex.img) continue
+    out.push(ex)
+    if (out.length >= max) break
+  }
+  return out
+}
+
+// The catalogue itself, in its own order: the last resort, for a person with
+// no plan to show.
+//
+// One exercise per body part, not the first four of the file: "any photo from
+// the catalogue" means a TASTE of the catalogue, and four abdominal exercises
+// in a row is not a taste of anything.
+function catalogSample(max) {
+  const out = []
+  const groups = new Set()
+  for (const ex of EXDB) {
+    if (!ex.img) continue
+    const group = ex.bp || ex.tg || 'other'
+    if (groups.has(group)) continue
+    groups.add(group)
+    out.push(ex)
+    if (out.length >= max) break
+  }
+  return out
 }
 
 // The best score wins. A name match beats a vocabulary match ("Press de
@@ -254,10 +321,24 @@ export function resolveExercises(question, { state = {}, limit = MAX_COACH_ARTIF
     }
   }
 
-  return [...scored.values()]
+  const found = [...scored.values()]
     .sort((a, b) => (isBetterScore(a, b) ? -1 : 1))
     .slice(0, max)
     .map(item => item.ex)
+
+  if (found.length) return found
+
+  // Nothing was named — but the person asked to SEE the catalogue. The intent
+  // is enough on its own: the plan's own exercises first (they are the ones
+  // they train), the catalogue's otherwise. Without this, "muéstrame
+  // cualquier foto del catálogo" travelled with no artifact and the coach
+  // answered that it could not show pictures.
+  if (wantsMedia(tokens)) {
+    const planned = planExercises(state, max)
+    return planned.length ? planned : catalogSample(max)
+  }
+
+  return []
 }
 
 /* ============================== the artifact ============================== */
@@ -270,20 +351,28 @@ function muscleLabel(ex) {
 }
 
 function artifactLine(ex) {
-  const id = cleanField(ex.id)
   const name = cleanField(ex.n)
   const muscle = muscleLabel(ex)
-  const image = imgSrc(ex)
-  if (!id || !name || !muscle || !image) return null
+  // The animation, not the still picture: it is what the chat renders under
+  // the answer, so it is what the coach should talk about.
+  const media = ex.gif ? gifSrc(ex) : imgSrc(ex)
+  if (!name || !muscle || !media) return null
 
-  // The backend accepts at most 200 characters per context line. The image URL
-  // is kept whole; the readable fields give way around it, so the line stays
-  // valid instead of ending in a broken URL.
-  const fixedLength = id.length + muscle.length + image.length + 3
-  const nameLimit = MAX_COACH_ARTIFACT_LINE_CHARS - 1 - fixedLength
-  if (nameLimit < 1) return null
+  // The line is read by the MODEL as prompt context, so it has to SAY what it
+  // is: a catalogue exercise whose animation is attached. A bare id and a URL
+  // let the coach answer "I cannot show pictures" while the chat was showing
+  // exactly that.
+  //
+  // The backend accepts at most 200 characters per context line. The URL is
+  // kept whole; the name gives way around it, so the line stays valid instead
+  // of ending in a broken URL.
+  const head = 'catálogo: '
+  const tail = ` (${muscle}) — animación: `
+  const fixed = head.length + tail.length + media.length
+  const room = MAX_COACH_ARTIFACT_LINE_CHARS - 1 - fixed
+  if (room < 1) return null
 
-  const line = `${id}|${name.slice(0, nameLimit)}|${muscle}|${image}`
+  const line = `${head}${name.slice(0, room)}${tail}${media}`
   return line.length < MAX_COACH_ARTIFACT_LINE_CHARS ? line : null
 }
 

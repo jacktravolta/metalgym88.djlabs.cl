@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import {
   askAssistant, findGymTariff, fetchAssistantTariff, isOffline, ASSISTANT_PATH,
 } from './assistant.js'
-import { EXDB, imgSrc } from '../exercises.js'
+import { EXDB, gifSrc } from '../exercises.js'
 import { resolveExercises } from '../coach-exercises.js'
 
 const BASE = 'https://api.djlabs.cl'
@@ -86,9 +86,11 @@ describe('askAssistant — the exercise artifact', () => {
       exerciseMatches: [bench],
     })
     const body = JSON.parse(m.seen[0].opts.body)
-    expect(body.context.lines[0]).toContain(bench.id)
     expect(body.context.lines[0]).toContain(bench.n)
-    expect(body.context.lines[0]).toContain(imgSrc(bench))
+    // The animation is what the chat shows, and the line SAYS so: without that
+    // the coach answered "I cannot show pictures" while the chat was showing one.
+    expect(body.context.lines[0]).toContain(gifSrc(bench))
+    expect(body.context.lines[0]).toContain('catálogo:')
     expect(body.context.lines).toContain('Search: press de banca')
   })
 
