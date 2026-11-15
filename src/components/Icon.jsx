@@ -78,6 +78,9 @@ const P = {
   play: <path d="M8.4 5.6 18 12l-9.6 6.4Z" />,
   pause: <path d="M9.4 5.8v12.4M14.6 5.8v12.4" />,
   stop: <rect x="6.4" y="6.4" width="11.2" height="11.2" rx="2.6" />,
+  // An open arc: it only reads as a spinner while it turns, so the rotation lives
+  // in CSS (.spin) and the glyph stays a plain stroke like the rest of the set.
+  spinner: <path d="M20 12a8 8 0 1 1-2.3-5.6" />,
   // Speaker + two waves: reads as "read it out loud" at 16px, where a filled megaphone
   // would turn into a blob.
   volumeHigh: <><path d="M4.6 9.4h3.2l4-3.2v11.6l-4-3.2H4.6Z" /><path d="M15.4 9.2a4 4 0 0 1 0 5.6M18 6.8a7.4 7.4 0 0 1 0 10.4" /></>,

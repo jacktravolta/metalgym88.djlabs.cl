@@ -116,7 +116,7 @@ function Bubble({ m, onSpeak }) {
     }}>
       {isTyping ? (
         <div style={{ display: 'flex', gap: 7, alignItems: 'center', color:'var(--label-2)' }}>
-          <Icon name="sparkles" />
+          <Icon name="spinner" className="spin" />
           <span style={{ fontSize:13 }}>{t('Thinking…')}</span>
         </div>
       ) : (
@@ -222,14 +222,19 @@ function StateBlock({ kind, onOpenWallet }) {
 function AssistantPanel({ close, context }) {
   const balance = useStore(s => s.balance)
   const soundEnabled = useStore(s => s.S.sound)
+  // The two coach switches live in the app state, so they are remembered on the
+  // device (localStorage) and follow the account to the other devices. A key
+  // that is missing counts as ON: nobody should find a mute they never set.
+  const coachSound = useStore(s => s.S.coachSound !== false)
+  const coachVoice = useStore(s => s.S.coachVoice !== false)
+  const setCoachSound = v => useStore.getState().update(s => { s.coachSound = v })
+  const setCoachVoice = v => useStore.getState().update(s => { s.coachVoice = v })
   const [msgs, setMsgs] = useState([])
   const [input, setInput] = useState('')
   const [conversationId, setConversationId] = useState(null)
   const [sending, setSending] = useState(false)
   const [kind, setKind] = useState(null)
   const [tariff, setTariff] = useState(undefined)
-  const [soundOn, setSoundOn] = useState(true)
-  const [ttsAuto, setTtsAuto] = useState(false)
   const online = useOnline()
   const listRef = useRef(null)
   const { speak, stop, speaking } = useTTS()
@@ -300,7 +305,7 @@ function AssistantPanel({ close, context }) {
   }
 
   const playTick = () => {
-    if (!soundEnabled || !soundOn) return
+    if (!soundEnabled || !coachSound) return
     try {
       const ctx = new (window.AudioContext || window.webkitAudioContext)()
       const o = ctx.createOscillator()
@@ -338,7 +343,7 @@ function AssistantPanel({ close, context }) {
       setMsgs(m => [...m, ans].slice(-MAX_MSGS))
       setReveal({ id, idx: 0, full: r.answer })
       playTick()
-      if (ttsAuto) speak(r.answer, ttsLang)
+      if (coachVoice) speak(r.answer, ttsLang)
     } else {
       setInput(q)
       setKind(r.kind)
@@ -359,10 +364,10 @@ function AssistantPanel({ close, context }) {
 
     <div style={{ display:'flex', gap:12, alignItems:'center', margin:'8px 0 10px', fontSize:13, color:'var(--label-2)' }}>
       <label style={{ display:'flex', alignItems:'center', gap:6 }}>
-        <Switch checked={soundOn} onChange={setSoundOn} /> {t('Sound on reply')}
+        <Switch checked={coachSound} onChange={setCoachSound} /> {t('Sound on reply')}
       </label>
       <label style={{ display:'flex', alignItems:'center', gap:6 }}>
-        <Switch checked={ttsAuto} onChange={setTtsAuto} /> {t('Auto read answers')}
+        <Switch checked={coachVoice} onChange={setCoachVoice} /> {t('Auto read answers')}
       </label>
     </div>
 

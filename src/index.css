@@ -332,6 +332,10 @@ h4.sec{
 @keyframes ping{0%{transform:scale(1);opacity:.7}100%{transform:scale(1.45);opacity:0}}
 /* The caret on an answer that is still being written out (AI Coach). */
 @keyframes caret{0%,45%{opacity:1}50%,95%{opacity:0}100%{opacity:1}}
+/* The spinner of the coach's "thinking" bubble: a still ring says nothing about
+   time passing, so the arc turns. */
+.spin{animation:spin 900ms linear infinite;transform-origin:50% 50%}
+@keyframes spin{to{transform:rotate(360deg)}}
 /* Desktop-rail extras: the brand line and the two entries the phone bar doesn't
    have (History, Settings). Hidden here so the phone bar keeps its five items —
    the desktop media query turns them on. */
