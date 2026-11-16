@@ -725,6 +725,17 @@ h4.sec{
 .sheet-coach{background:var(--bg)}
 @keyframes sheetup{from{transform:translateY(100%)}to{transform:none}}
 .sheet .grab{width:36px;height:5px;border-radius:99px;background:var(--label-4);margin:6px auto 14px}
+/* The anchor is sticky but takes no height, so the close control never shifts the
+   sheet content. Its absolute button stays pinned to the sheet's top-right edge
+   while the sheet itself scrolls. */
+.sheet-close-anchor{position:sticky;top:0;height:0;z-index:4}
+.sheet-close{
+  position:absolute;top:8px;right:0;width:36px;height:36px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  background:rgba(0,0,0,.55);color:#fff;font-size:18px;--icon-stroke:2.2;
+  box-shadow:0 4px 14px rgba(0,0,0,.22);
+}
+.sheet-close:active{background:rgba(0,0,0,.72)}
 .sheet h3{font-size:20px;font-weight:600;letter-spacing:-.021em;margin-bottom:14px}
 .center{
   position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);

@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useUI } from '../store/useUI.js'
+import { t } from '../lib/i18n.js'
+import Icon from './Icon.jsx'
 
 // One bottom sheet (or centered dialog) with swipe-to-dismiss.
 function Sheet({ sheet }) {
@@ -57,6 +59,19 @@ function Sheet({ sheet }) {
     <div>
       <div className="mback" onClick={() => { if (!sheet.locked) close() }} />
       <div className={'sheet' + (sheet.className ? ' ' + sheet.className : '')} ref={ref} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+        {!sheet.locked && <div className="sheet-close-anchor">
+          <button
+            type="button"
+            className="sheet-close"
+            aria-label={t('Close')}
+            data-nodrag
+            onTouchStart={e => e.stopPropagation()}
+            onTouchEnd={e => e.stopPropagation()}
+            onClick={close}
+          >
+            <Icon name="xmark" />
+          </button>
+        </div>}
         <div className="grab" />
         {sheet.render(close)}
       </div>
