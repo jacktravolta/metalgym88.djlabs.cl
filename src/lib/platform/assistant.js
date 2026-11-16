@@ -143,7 +143,8 @@ function contextWithExercises(context, matches) {
 // `context` is the optional screen summary. `exerciseMatches` are catalogue
 // exercises resolved from THIS question; their compact artifact is added to
 // the request context here, at send time, and never when the panel opens.
-export async function askAssistant(question, { conversationId = null, context = null, exerciseMatches = [] } = {}) {
+// `signal` is the optional AbortSignal used when the panel closes.
+export async function askAssistant(question, { conversationId = null, context = null, exerciseMatches = [], signal = null } = {}) {
   const requestContext = contextWithExercises(context, exerciseMatches)
   const body = JSON.stringify({
     question,
@@ -153,9 +154,14 @@ export async function askAssistant(question, { conversationId = null, context = 
   })
   let d, status = null
   try {
-    d = await phttp(ASSISTANT_PATH, { method: 'POST', body })
+    d = await phttp(ASSISTANT_PATH, { method: 'POST', body, signal })
   } catch (e) {
     status = e && typeof e.status === 'number' ? e.status : null
+    // An aborted run belongs to a panel that is already gone. It is neither an
+    // error nor a session problem, so it never reaches the transcript.
+    if ((e && e.name === 'AbortError') || (signal && signal.aborted)) {
+      return { kind: 'cancelled', answer: '', conversationId: null, balance: null, operationId: null, status: null }
+    }
     // A failed transient refresh is not an expired session. Say so instead of
     // sending the person to a sign-in form for a network hiccup.
     const kind = e && e.transient ? 'transient' : classify(status, e && e.code)
@@ -186,9 +192,9 @@ export function findGymTariff(tariffs) {
 }
 
 // null = nothing usable served (the UI then says the cost is shown on confirm).
-export async function fetchAssistantTariff() {
+export async function fetchAssistantTariff(signal = null) {
   try {
-    return findGymTariff(await fetchTariffs())
+    return findGymTariff(await fetchTariffs({ signal }))
   } catch (e) {
     return null
   }

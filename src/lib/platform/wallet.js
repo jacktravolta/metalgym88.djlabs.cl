@@ -124,8 +124,8 @@ export function normalizeTariffs(data) {
     .filter(x => x.code)
 }
 
-export async function fetchTariffs() {
-  return normalizeTariffs(await phttp(withHeartQuery('/tariffs'), {}))
+export async function fetchTariffs(opts = {}) {
+  return normalizeTariffs(await phttp(withHeartQuery('/tariffs'), opts))
 }
 
 /* ============================ order creation ============================ */

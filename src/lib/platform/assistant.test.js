@@ -71,6 +71,30 @@ describe('askAssistant — request shape', () => {
     expect('conversation_id' in body).toBe(true)
     expect(body.conversation_id).toBe(null)
   })
+
+  it('passes the AbortSignal through and reports an aborted request as cancelled', async () => {
+    const seen = []
+    const impl = vi.fn((url, opts) => {
+      seen.push({ url, opts })
+      return new Promise((resolve, reject) => {
+        opts.signal.addEventListener('abort', () => {
+          const error = new Error('aborted')
+          error.name = 'AbortError'
+          reject(error)
+        }, { once: true })
+      })
+    })
+    vi.stubGlobal('fetch', impl)
+    const controller = new AbortController()
+
+    const pending = askAssistant('q', { signal: controller.signal })
+    controller.abort()
+    const result = await pending
+
+    expect(seen[0].opts.signal).toBe(controller.signal)
+    expect(result.kind).toBe('cancelled')
+    expect(result.answer).toBe('')
+  })
 })
 
 // The exercise artifact: the catalogue travels WITH the question, because the
@@ -275,6 +299,14 @@ describe('tariff before sending', () => {
     const r = await fetchAssistantTariff()
     expect(m.seen[0].url).toBe(BASE + '/tariffs?heart=metalgym88')
     expect(r).toEqual({ code: 'gym_ai_chat', cost: 3, label: 'AI assistant' })
+  })
+
+  it('passes the AbortSignal to the tariff request too', async () => {
+    const m = mockFetch([res(200, { tariffs: [{ operation: 'gym_ai_chat', cost: 1 }] })])
+    vi.stubGlobal('fetch', m.impl)
+    const controller = new AbortController()
+    await fetchAssistantTariff(controller.signal)
+    expect(m.seen[0].opts.signal).toBe(controller.signal)
   })
 
   it('no gym row served → null, so the UI says the cost is shown on confirm (never invents a number)', async () => {

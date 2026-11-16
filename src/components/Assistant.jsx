@@ -22,6 +22,7 @@ import { t } from '../lib/i18n.js'
 import { askAssistant, fetchAssistantTariff, isOffline } from '../lib/platform/assistant.js'
 import { requestMagicLink } from '../lib/platform/auth.js'
 import { buildCoachPayload } from '../lib/coach-context.js'
+import { createCoachRunGuard } from '../lib/coach-run.js'
 import { toSpeechText } from '../lib/speech.js'
 import { resolveExercises, exerciseCards } from '../lib/coach-exercises.js'
 import {
@@ -305,19 +306,26 @@ function AssistantPanel({ close, context }) {
   const [tariff, setTariff] = useState(undefined) // undefined = loading, null = not served, { cost } = served
   const online = useOnline()
   const listRef = useRef(null)
+  const runGuardRef = useRef(null)
+  if (!runGuardRef.current) runGuardRef.current = createCoachRunGuard()
   const { speak, stop, speaking } = useTTS()
   const [reveal, setReveal] = useState(null)   // { id, idx, full } — the write-out of a long answer
   const lang = useStore(s => s.S.lang) || 'es'
   const ttsLang = lang === 'en' ? 'en-US' : 'es-ES'
 
   useEffect(() => {
-    let alive = true
-    fetchAssistantTariff().then(r => { if (alive) setTariff(r) })
-    return () => { alive = false }
+    const controller = new AbortController()
+    fetchAssistantTariff(controller.signal).then(r => {
+      if (!controller.signal.aborted) setTariff(r)
+    })
+    return () => controller.abort()
   }, [])
 
-  // Closing the sheet must not leave the coach talking in the background.
+  // Closing the sheet stops everything this panel started: the pending request
+  // is aborted, the reveal timer is cleared by its effect cleanup, and the coach
+  // does not keep talking behind another screen.
   useEffect(() => () => {
+    runGuardRef.current.abort()
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) window.speechSynthesis.cancel()
   }, [])
 
@@ -407,8 +415,31 @@ function AssistantPanel({ close, context }) {
     const next = [...history, question, answer].slice(-MAX_THREAD_MSGS)
     setMsgs(m => [...m.filter(x => x.role !== 'typing'), question, { role: 'typing' }].slice(-MAX_THREAD_MSGS))
     setSending(true)
-    const r = await askAssistant(q, { conversationId, context, exerciseMatches: matches })
+
+    const run = runGuardRef.current.begin()
+    let r
+    try {
+      r = await askAssistant(q, {
+        conversationId,
+        context,
+        exerciseMatches: matches,
+        signal: run.controller.signal,
+      })
+    } catch (e) {
+      if (!runGuardRef.current.isCurrent(run)) return
+      runGuardRef.current.complete(run)
+      setSending(false)
+      setInput(q)
+      setKind('error')
+      return
+    }
+
+    // The panel may have closed while the request was in flight. A stale run is
+    // discarded completely: no message, no timer, no speech and no thread write.
+    if (!runGuardRef.current.isCurrent(run)) return
+    runGuardRef.current.complete(run)
     setSending(false)
+
     if (r.kind === 'ok') {
       if (r.balance != null) useStore.setState({ balance: r.balance })
       const nextConversationId = r.conversationId || conversationId
