@@ -132,8 +132,30 @@
 
 ## Progreso
 
-_(lo actualiza el escritor al cerrar cada tarea, con el resultado observado y
-el id del commit)_
+- **WU1 — la media (T1..T5) — cerrada en `e883111`.**
+  `src/lib/chat-media.js` (nuevo) parte la respuesta en segmentos
+  texto/imagen/enlace: la URL desaparece del texto visible, solo `http` y
+  `https` se vuelven clicables, la numeración de figuras va dentro de la
+  respuesta y la puntuación final del enlace se conserva. La burbuja renderiza
+  `<figure>` con pie "Figura N" y suelta un enlace honesto si la imagen no
+  carga. `toSpeechText` ya no pronuncia ninguna URL: dice "imagen" o "enlace",
+  lo mismo que la pantalla.
+- **WU2 — el panel, el nombre y los títulos (T6..T10) — cerrada en `e883111`.**
+  La lista de conversaciones es una pestaña minimizable y los dos botones son
+  botones de icono de 26px, siempre alcanzables. El nombre viaja en el primer
+  prompt de cada conversación (`withPersonIntro`) y la burbuja conserva las
+  palabras de la persona. El título derivado descarta el saludo y corta en la
+  primera frase; el hilo abierto desde la pantalla de ejercicio se nombra con
+  el ejercicio.
+- **Verificación observada**: `npx vitest run` → **32 archivos / 485 tests en
+  verde** (la base eran 31/466); `npx vite build` → limpio, 137 módulos, 3.76s.
+- **Límite honesto**: el chat real con imágenes no se pudo ejercitar en un
+  navegador (no hay sesión autenticada con créditos en este entorno). Lo verificado
+  es la lógica (parser, voz, títulos, nombre) y la compilación de producción.
+- **Nota de ruta**: el escritor delegado de esta unidad se quedó sin escribir
+  código (el proveedor de modelos lo limitó con 429) y dejó solo el parser
+  `src/lib/chat-media.js`, que se reutilizó tal cual. La implementación la
+  terminó el orquestador a pedido del owner.
 
 ## Espejo en Engram
 
