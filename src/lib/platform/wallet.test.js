@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   normalizeLimits, fetchLimits, clampAmount,
+  normalizeQuote, fetchQuote, formatMoney,
   normalizeMovements, fetchMovements, movementDirection, movementLabel,
   normalizeTariffs, fetchTariffs, tariffLabel,
   createOrder, goToPayment, openPaymentTab,
@@ -57,6 +58,80 @@ describe('limits', () => {
     expect(clampAmount(10500, lim)).toBe(10000)
     expect(clampAmount('abc', lim)).toBe(1000)
     expect(clampAmount(500, null)).toBe(500)
+  })
+})
+
+describe('payment quote', () => {
+  it('normalizes the pinned currencies[] shape into one canonical shape', () => {
+    const out = normalizeQuote({
+      detected_country: 'CL',
+      detected_currency: 'CLP',
+      default_currency: 'CLP',
+      currencies: [
+        { currency: 'CLP', available: true, min_clp: 1000, max_clp: 10000, presets: [1000, 5000, 10000] },
+        { currency: 'USD', available: false, reason: 'El pago en dólares todavía no está disponible.', variants: [] },
+      ],
+    })
+    expect(out).toEqual({
+      detectedCountry: 'CL',
+      detectedCurrency: 'CLP',
+      defaultCurrency: 'CLP',
+      currencies: [
+        { currency: 'CLP', available: true, reason: null, minClp: 1000, maxClp: 10000, presets: [1000, 5000, 10000], variants: [] },
+        { currency: 'USD', available: false, reason: 'El pago en dólares todavía no está disponible.', minClp: null, maxClp: null, presets: [], variants: [] },
+      ],
+    })
+  })
+
+  it('accepts the earlier options[] shape and normalizes its variants', () => {
+    const out = normalizeQuote({
+      detected_country: 'US',
+      detected_currency: 'USD',
+      default_currency: 'USD',
+      options: [
+        { currency: 'CLP', available: true, min: 1000, max: 10000, amounts: [1000, 5000, 10000] },
+        {
+          currency: 'USD',
+          available: true,
+          variants: [{ variant_id: '67890', price_usd: 10, credits: 10000, amount_clp: 10000, label: 'US$10' }],
+        },
+      ],
+    })
+    expect(out.defaultCurrency).toBe('USD')
+    expect(out.currencies[0]).toEqual({
+      currency: 'CLP', available: true, reason: null, minClp: 1000, maxClp: 10000,
+      presets: [1000, 5000, 10000], variants: [],
+    })
+    expect(out.currencies[1].variants).toEqual([
+      { variantId: '67890', priceUsd: 10, credits: 10000, amountClp: 10000, label: 'US$10' },
+    ])
+  })
+
+  it('returns null for garbage instead of exposing a broken quote to the UI', () => {
+    expect(normalizeQuote(null)).toBe(null)
+    expect(normalizeQuote([])).toBe(null)
+    expect(normalizeQuote({ options: 'not-a-list' })).toBe(null)
+    expect(normalizeQuote({ currencies: [null, 42] })).toBe(null)
+  })
+
+  it('fetches the heart-scoped quote and returns null when the endpoint is missing', async () => {
+    const m = mockFetch([res(404, { error: 'Not found' })])
+    vi.stubGlobal('fetch', m.impl)
+    expect(await fetchQuote()).toBe(null)
+    expect(m.seen[0].url).toBe(BASE + '/payments/quote?heart=metalgym88')
+  })
+
+  it('returns null on a quote network failure', async () => {
+    const m = mockFetch(['network'])
+    vi.stubGlobal('fetch', m.impl)
+    expect(await fetchQuote()).toBe(null)
+  })
+
+  it('formats CLP as an integer and USD with two decimals', () => {
+    expect(formatMoney(10000, 'CLP')).toBe('10.000')
+    expect(formatMoney(1234, 'CLP')).toBe('1234')
+    expect(formatMoney(10, 'USD')).toBe('US$10.00')
+    expect(formatMoney(1234.5, 'USD')).toBe('US$1,234.50')
   })
 })
 

@@ -13,6 +13,7 @@
 // gateway is platform-side and provider-agnostic.
 import { phttp } from './http.js'
 import { withHeart, withHeartQuery } from './config.js'
+import { fmtNum } from '../format.js'
 
 /* ============================ limits ============================ */
 
@@ -42,6 +43,88 @@ export function clampAmount(v, limits) {
     if (typeof limits.max === 'number') a = Math.min(limits.max, a)
   }
   return a
+}
+
+/* ============================ quote ============================ */
+
+const isObject = value => !!value && typeof value === 'object' && !Array.isArray(value)
+const numberOrNull = value => typeof value === 'number' && Number.isFinite(value) ? value : null
+const stringOrNull = value => typeof value === 'string' && value.trim() ? value.trim() : null
+const currencyCode = value => {
+  const code = stringOrNull(value)?.toUpperCase()
+  return code && /^[A-Z]{3}$/.test(code) ? code : null
+}
+const booleanOrNull = value => typeof value === 'boolean' ? value : null
+
+function normalizeVariant(raw) {
+  if (!isObject(raw)) return null
+  const variantId = stringOrNull(raw.variant_id) || stringOrNull(raw.variantId) || stringOrNull(raw.id)
+  if (!variantId) return null
+  return {
+    variantId,
+    priceUsd: numberOrNull(raw.price_usd) ?? numberOrNull(raw.priceUsd) ?? numberOrNull(raw.price),
+    credits: numberOrNull(raw.credits),
+    amountClp: numberOrNull(raw.amount_clp) ?? numberOrNull(raw.amountClp),
+    label: stringOrNull(raw.label),
+  }
+}
+
+function normalizeCurrency(raw) {
+  if (!isObject(raw)) return null
+  const currency = currencyCode(raw.currency) || currencyCode(raw.currency_code) || currencyCode(raw.code)
+  if (!currency) return null
+  const rawPresets = Array.isArray(raw.presets) ? raw.presets : Array.isArray(raw.amounts) ? raw.amounts : []
+  const rawVariants = Array.isArray(raw.variants) ? raw.variants : Array.isArray(raw.prices) ? raw.prices : []
+  return {
+    currency,
+    available: booleanOrNull(raw.available) ?? booleanOrNull(raw.enabled) ?? true,
+    reason: stringOrNull(raw.reason),
+    minClp: numberOrNull(raw.min_clp) ?? numberOrNull(raw.min),
+    maxClp: numberOrNull(raw.max_clp) ?? numberOrNull(raw.max),
+    presets: rawPresets.map(Number).filter(n => Number.isFinite(n) && n > 0).map(n => Math.round(n)),
+    variants: rawVariants.map(normalizeVariant).filter(Boolean),
+  }
+}
+
+// The platform may answer with the current currencies[] contract or the earlier
+// options[] contract. Both become the same small, UI-ready shape here; malformed
+// data becomes null so the wallet can keep its existing CLP-only behaviour.
+export function normalizeQuote(data) {
+  const source = isObject(data) && isObject(data.data) && !Array.isArray(data.currencies) && !Array.isArray(data.options)
+    ? data.data
+    : data
+  if (!isObject(source)) return null
+  const rows = Array.isArray(source.currencies) ? source.currencies : Array.isArray(source.options) ? source.options : []
+  const currencies = rows.map(normalizeCurrency).filter(Boolean)
+  if (!currencies.length) return null
+  const detectedCurrency = currencyCode(source.detected_currency)
+  return {
+    detectedCountry: stringOrNull(source.detected_country)?.toUpperCase() || null,
+    detectedCurrency,
+    defaultCurrency: currencyCode(source.default_currency) || detectedCurrency,
+    currencies,
+  }
+}
+
+// A missing quote endpoint is expected while the API is being deployed. Every
+// failure is therefore quiet: null means "use the existing CLP-only recharge".
+export async function fetchQuote() {
+  try {
+    return normalizeQuote(await phttp(withHeartQuery('/payments/quote'), {}))
+  } catch {
+    return null
+  }
+}
+
+// CLP keeps the app's current integer/separator treatment. USD uses the standard
+// two-decimal US dollar notation so its cents are always visible.
+export function formatMoney(amount, currency = 'CLP') {
+  const value = Number(amount)
+  const safe = Number.isFinite(value) ? value : 0
+  if (currencyCode(currency) === 'USD') {
+    return 'US$' + safe.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  }
+  return fmtNum(Math.round(safe))
 }
 
 /* ============================ movements ============================ */
