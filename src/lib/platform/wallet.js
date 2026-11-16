@@ -218,12 +218,18 @@ const newKey = () =>
 
 // Boleta (document_type 46) is the default; factura 33 keeps the seam right here —
 // it will pass documentType: 33 plus buyer fiscal fields in a later task.
-export async function createOrder(amountClp, { documentType = 46, genKey } = {}) {
+// CLP sends the chosen amount. USD sends only the server-owned variant: the
+// client never invents a price or a credits amount for a fixed-price option.
+export async function createOrder(amountClp, { currency = 'CLP', variantId, documentType = 46, genKey } = {}) {
   const key = genKey ? genKey() : newKey()
+  const selectedCurrency = String(currency || 'CLP').toUpperCase()
+  const body = selectedCurrency === 'USD'
+    ? { currency: 'USD', variant_id: variantId, document_type: documentType }
+    : { amount_clp: amountClp, currency: 'CLP', document_type: documentType }
   const opts = {
     method: 'POST',
     headers: { 'Idempotency-Key': key },
-    body: JSON.stringify(withHeart({ amount_clp: amountClp, document_type: documentType })),
+    body: JSON.stringify(withHeart(body)),
   }
   let lastErr = null
   for (let attempt = 0; attempt < 3; attempt++) {

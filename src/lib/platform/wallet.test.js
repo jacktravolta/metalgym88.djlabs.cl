@@ -217,7 +217,20 @@ describe('createOrder — provider-agnostic order creation', () => {
     expect(call.url).toBe(BASE + '/payments/orders')
     expect(call.opts.method).toBe('POST')
     expect(call.opts.headers['Idempotency-Key']).toBe('KEY-1')
-    expect(JSON.parse(call.opts.body)).toEqual({ amount_clp: 5000, document_type: 46, heart: 'metalgym88' })
+    expect(JSON.parse(call.opts.body)).toEqual({ amount_clp: 5000, currency: 'CLP', document_type: 46, heart: 'metalgym88' })
+  })
+
+  it('POSTs the USD variant without inventing an amount or credits', async () => {
+    const m = mockFetch([res(200, { redirect_url: 'https://pay/go' })])
+    vi.stubGlobal('fetch', m.impl)
+    const { order } = await createOrder(null, { currency: 'USD', variantId: '67890', genKey: () => 'KEY-USD' })
+    expect(order).toEqual({ redirect_url: 'https://pay/go' })
+    const call = m.seen[0]
+    expect(call.url).toBe(BASE + '/payments/orders')
+    expect(call.opts.headers['Idempotency-Key']).toBe('KEY-USD')
+    expect(JSON.parse(call.opts.body)).toEqual({ currency: 'USD', variant_id: '67890', document_type: 46, heart: 'metalgym88' })
+    expect(JSON.parse(call.opts.body)).not.toHaveProperty('amount_clp')
+    expect(JSON.parse(call.opts.body)).not.toHaveProperty('credits')
   })
 
   it('REUSES the same idempotency key after a network failure — never a double charge', async () => {
@@ -230,6 +243,22 @@ describe('createOrder — provider-agnostic order creation', () => {
     expect(m.seen[2].opts.headers['Idempotency-Key']).toBe('SAME-KEY')
     expect(m.seen[2].opts.body).toBe(m.seen[0].opts.body)
     expect(idempotencyKey).toBe('SAME-KEY')
+  })
+
+  it('reuses the same idempotency key and body across USD network retries', async () => {
+    const m = mockFetch(['network', 'network', res(200, { redirect_url: 'https://pay/go' })])
+    vi.stubGlobal('fetch', m.impl)
+    const { idempotencyKey } = await createOrder(null, {
+      currency: 'USD',
+      variantId: '67890',
+      genKey: () => 'USD-SAME-KEY',
+    })
+    expect(m.impl).toHaveBeenCalledTimes(3)
+    expect(m.seen.map(call => call.opts.headers['Idempotency-Key'])).toEqual([
+      'USD-SAME-KEY', 'USD-SAME-KEY', 'USD-SAME-KEY',
+    ])
+    expect(m.seen[2].opts.body).toBe(m.seen[0].opts.body)
+    expect(idempotencyKey).toBe('USD-SAME-KEY')
   })
 
   it('stops retrying the moment the server answers with an error and surfaces it', async () => {
