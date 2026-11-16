@@ -37,6 +37,7 @@ import {
   upsertCoachThread,
 } from '../lib/coach-threads.js'
 import { nav } from '../lib/nav.js'
+import { swish } from '../lib/sound.js'
 import { openWallet } from './Wallet.jsx'
 import Icon from './Icon.jsx'
 import { Button, TextArea, Row, Switch } from './ui.jsx'
@@ -438,22 +439,7 @@ function AssistantPanel({ close, context, initialRequest = null }) {
     }
   }
 
-  const playTick = () => {
-    if (!soundEnabled || !coachSound) return
-    try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)()
-      const o = ctx.createOscillator()
-      const g = ctx.createGain()
-      o.type = 'sine'
-      o.frequency.value = 880
-      g.gain.setValueAtTime(0.0001, ctx.currentTime)
-      g.gain.exponentialRampToValueAtTime(0.15, ctx.currentTime + 0.01)
-      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.12)
-      o.connect(g).connect(ctx.destination)
-      o.start()
-      o.stop(ctx.currentTime + 0.13)
-    } catch {}
-  }
+  const playTick = () => swish(soundEnabled && coachSound)
 
   const offline = !online
   const disabled = sending || offline
