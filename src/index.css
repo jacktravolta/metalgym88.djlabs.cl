@@ -724,7 +724,10 @@ h4.sec{
   --scrollbar-thumb:var(--label-4);
   scrollbar-width:thin;scrollbar-color:var(--scrollbar-thumb) transparent;
 }
-.sheet:hover,.coach-scroll:hover{--scrollbar-thumb:var(--sep)}
+/* On hover the thumb gets ONE step more visible. --label-3 is that step: --sep
+   is a separator hairline and, in the dark theme, it is DARKER than the resting
+   thumb, so using it here would make the scrollbar fade on hover. */
+.sheet:hover,.coach-scroll:hover{--scrollbar-thumb:var(--label-3)}
 .sheet::-webkit-scrollbar,.coach-scroll::-webkit-scrollbar{width:9px}
 .sheet::-webkit-scrollbar-track,.coach-scroll::-webkit-scrollbar-track{background:transparent}
 .sheet::-webkit-scrollbar-thumb,.coach-scroll::-webkit-scrollbar-thumb{
