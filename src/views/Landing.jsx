@@ -23,6 +23,7 @@ import { TERMS_URL, PRIVACY_URL } from '../lib/legal.js'
 import { LOGIN_SECTION_ID, panelUrl, panelHref } from '../lib/landing-login.js'
 import { requestMagicLink, me as platformMe } from '../lib/platform/auth.js'
 import { phttp } from '../lib/platform/http.js'
+import { readWelcomeBonus, welcomeBonusMessage } from '../lib/platform/welcome-bonus.js'
 import { t } from '../lib/i18n.js'
 import { readStoredTheme, saveStoredTheme, applyTheme } from '../lib/theme.js'
 import { useStore } from '../store/useStore.js'
@@ -103,6 +104,9 @@ function RegisterCard({ loggedIn }) {
   const [terms, setTerms] = useState(false)
   const [busy, setBusy] = useState(false)
   const [sent, setSent] = useState(false)
+  // What the platform's ledger actually reported about the welcome bonus. null
+  // means the API did not publish that detail yet, so the copy stays neutral.
+  const [welcomeBonus, setWelcomeBonus] = useState(null)
   // 'register' (new account) or 'login' (the account already exists): both end
   // in the same passwordless link, but the promise made to the person is not
   // the same — a login does not hand out the welcome credits again.
@@ -120,7 +124,8 @@ function RegisterCard({ loggedIn }) {
     try {
       // The platform's passwordless entry: the account is created (or found)
       // and the access link travels by email. Same contract the app uses.
-      await requestMagicLink(mail, { terms: true, name: n })
+      const response = await requestMagicLink(mail, { terms: true, name: n })
+      setWelcomeBonus(readWelcomeBonus(response))
       setMode('register')
       setSent(true)
     } catch (e) {
@@ -142,6 +147,7 @@ function RegisterCard({ loggedIn }) {
     setBusy(true); setErr(null)
     try {
       await requestMagicLink(mail, { terms: true })
+      setWelcomeBonus(null)
       setMode('login')
       setSent(true)
     } catch (e) {
@@ -161,7 +167,7 @@ function RegisterCard({ loggedIn }) {
         <p className="lg-msg ok">
           {mode === 'login'
             ? 'Con ese enlace entras directo a tu panel. Si tu cuenta ya estaba activa, vuelves a donde la dejaste.'
-            : 'Te acreditamos 100 créditos de bienvenida al confirmar tu correo. Con ellos puedes preguntarle al coach IA lo que quieras sobre tu entrenamiento.'}
+            : welcomeBonusMessage(welcomeBonus)}
         </p>
         {loggedIn && (
           <a className="lg-btn ghost block" style={{ marginTop: 14 }} href="index.html#/home">
@@ -435,7 +441,7 @@ export default function Landing() {
             <p className="lead">
               metalgym88 te acompaña con una biblioteca de ejercicios con animación, planes que se ajustan a
               tus días y un coach IA que responde sobre la pantalla que estás viendo. Regístrate gratis y
-              llévate 100 créditos de bienvenida.
+              consulta tu saldo de créditos desde el panel.
             </p>
             <div className="lg-cta">
               <a className="lg-btn primary" href="#acceso">Crear mi cuenta gratis</a>
@@ -602,8 +608,8 @@ export default function Landing() {
                 <div className="lg-contact-card">
                   <h3>¿Aún no tienes cuenta?</h3>
                   <p>
-                    Crearla es gratis y toma menos de un minuto, con 100 créditos de bienvenida para el
-                    coach IA.
+                    Crearla es gratis y toma menos de un minuto. Tu saldo de créditos aparece en la
+                    billetera del panel.
                   </p>
                   <a className="lg-btn ghost" style={{ marginTop: 12 }} href="#acceso">Crear mi cuenta</a>
                 </div>
