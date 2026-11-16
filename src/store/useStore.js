@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { me as platformMe, logout as platformLogout, onAuthExpired } from '../lib/platform/auth.js'
+import { me as platformMe, logout as platformLogout, onAuthExpired, onAuthRefreshFailed } from '../lib/platform/auth.js'
 import { withHeart, withHeartQuery } from '../lib/platform/config.js'
 import { phttp } from '../lib/platform/http.js'
 import { decideSync, SYNC_DATA_PATH, hasData } from './sync.js'
@@ -88,17 +88,30 @@ export const useStore = create((set, get) => {
     localStorage.removeItem(COACH_THREADS_KEY)
     localStorage.removeItem(KEY)
     persist(clone(DEF), false)
+    set({ authIssue: null })
   }
 
-  // If the platform's silent refresh hits a dead refresh cookie mid-session, the session is
-  // over on this device — flip to the signed-out state so the gate UI shows again. Guest and
-  // demo builds never call the platform, so the listener stays dormant there.
-  onAuthExpired(() => { get().setUser(null); set({ balance: null }) })
+  // A DEFINITE refresh rejection (401/400) means the platform no longer accepts this
+  // session. The account gate comes back, but the training log stays exactly where it
+  // was on this device and the sign-in screen explains what happened.
+  //
+  // A transient refresh failure (offline, 429, 5xx) is NOT an expiry. The person stays
+  // signed in, the local copy stays usable, and the next request tries the refresh again.
+  onAuthExpired(() => {
+    get().setUser(null)
+    set({ balance: null, authIssue: { kind: 'expired' } })
+  })
+  onAuthRefreshFailed(details => {
+    set({ authIssue: { kind: 'transient', status: details && details.status } })
+  })
 
   return {
     S: (() => { const s = loadState(); registerCustom(s.customEx); return s })(),
     user: (() => { try { return JSON.parse(localStorage.getItem('gym_user')) || null } catch { return null } })(),
     balance: null,   // platform credits — refreshed at boot and on every credit-bearing call
+    // Why the account gate is visible, when it is not a normal sign-out:
+    // { kind: 'expired' } | { kind: 'transient', status }
+    authIssue: null,
     ready: false,
 
     // Mutate a draft of S via producer fn, then persist + schedule sync.
@@ -113,10 +126,16 @@ export const useStore = create((set, get) => {
     setGuest(v) { if (v) localStorage.setItem('gym_guest', '1'); else localStorage.removeItem('gym_guest'); set({}) },
 
     setUser(u) {
-      if (u) { localStorage.setItem('gym_user', JSON.stringify(u)); localStorage.removeItem('gym_guest') }
-      else localStorage.removeItem('gym_user')
+      if (u) {
+        localStorage.setItem('gym_user', JSON.stringify(u))
+        localStorage.removeItem('gym_guest')
+        // A successful sign-in resolves any earlier renewal problem.
+        if (get().authIssue) set({ authIssue: null })
+      } else localStorage.removeItem('gym_user')
       set({ user: u })
     },
+
+    dismissAuthIssue() { set({ authIssue: null }) },
 
     // Mirror the state into the platform document store (PUT /opengym/data — backend
     // module ships in T6). localStorage stays the source of truth; this is a copy.
@@ -228,7 +247,9 @@ export const useStore = create((set, get) => {
           get().update(s => { s.reminder = { ...s.reminder, tz } })
         }
       } catch (e) {
-        if (e.status === 401) { get().setUser(null); set({ balance: null }) }
+        // A transient renewal failure keeps the cached session and the local log.
+        // Only the platform's definite rejection is an expiry.
+        if (e.status === 401 && !e.transient) { get().setUser(null); set({ balance: null }) }
       }
       set({ ready: true })
     }

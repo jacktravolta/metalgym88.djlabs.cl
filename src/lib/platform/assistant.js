@@ -138,7 +138,7 @@ function contextWithExercises(context, matches) {
 
 // askAssistant('…', { conversationId, context, exerciseMatches }) → one of:
 //   { kind: 'ok', answer, conversationId, balance, operationId, status: null }
-//   { kind: 'not_available' | 'insufficient_credits' | 'auth' | 'error', status, … }
+//   { kind: 'not_available' | 'insufficient_credits' | 'auth' | 'transient' | 'error', status, … }
 // Never throws: every failure is a classified kind the UI can speak kindly.
 // `context` is the optional screen summary. `exerciseMatches` are catalogue
 // exercises resolved from THIS question; their compact artifact is added to
@@ -156,7 +156,10 @@ export async function askAssistant(question, { conversationId = null, context = 
     d = await phttp(ASSISTANT_PATH, { method: 'POST', body })
   } catch (e) {
     status = e && typeof e.status === 'number' ? e.status : null
-    return { kind: classify(status, e && e.code), answer: '', conversationId: null, balance: null, operationId: null, status }
+    // A failed transient refresh is not an expired session. Say so instead of
+    // sending the person to a sign-in form for a network hiccup.
+    const kind = e && e.transient ? 'transient' : classify(status, e && e.code)
+    return { kind, answer: '', conversationId: null, balance: null, operationId: null, status }
   }
   const src = resolveEnvelope(d)
   const answer = typeof src.answer === 'string' && src.answer.trim() ? src.answer

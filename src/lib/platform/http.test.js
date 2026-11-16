@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { phttp, setAccessToken, clearAccessToken, getAccessToken, onAuthExpired } from './http.js'
+import { phttp, setAccessToken, clearAccessToken, getAccessToken, onAuthExpired, onAuthRefreshFailed, refreshSession } from './http.js'
 
 const BASE = 'https://api.djlabs.cl'
 
@@ -16,9 +16,16 @@ function mockFetch(responses) {
   const impl = vi.fn((url, opts) => {
     seen.push({ url, opts: opts || {} })
     const i = seen.length - 1
+    if (responses[i] === 'network') return Promise.reject(new TypeError('Failed to fetch'))
     return Promise.resolve(responses[i])
   })
   return { impl, seen }
+}
+
+const deferred = () => {
+  let resolve
+  const promise = new Promise(done => { resolve = done })
+  return { promise, resolve }
 }
 
 beforeEach(() => {
@@ -178,5 +185,96 @@ describe('phttp — transport', () => {
     expect(h['Idempotency-Key']).toBe('k-1')
     expect(h['Content-Type']).toBe('application/json')
     expect(h.Authorization).toBe('Bearer tok1')
+  })
+})
+
+describe('session refresh — single flight and failure meaning', () => {
+  it('shares ONE refresh across a burst of concurrent 401s', async () => {
+    const refresh = deferred()
+    let originalCalls = 0
+    const impl = vi.fn((url) => {
+      if (url === BASE + '/auth/refresh') return refresh.promise
+      originalCalls += 1
+      return Promise.resolve(originalCalls <= 3 ? res(401, {}) : res(200, { fine: true }))
+    })
+    vi.stubGlobal('fetch', impl)
+
+    const requests = [phttp('/one'), phttp('/two'), phttp('/three')]
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    const refreshCalls = impl.mock.calls.filter(([url]) => url === BASE + '/auth/refresh')
+    expect(refreshCalls).toHaveLength(1)
+
+    refresh.resolve(res(200, { token: 'shared-token' }))
+    const results = await Promise.all(requests)
+    expect(results).toEqual([{ fine: true }, { fine: true }, { fine: true }])
+    expect(impl.mock.calls.filter(([url]) => url === BASE + '/auth/refresh')).toHaveLength(1)
+  })
+
+  it('a 5xx refresh failure is transient: the session and token stay alive', async () => {
+    const m = mockFetch([res(401, {}), res(503, { error: 'busy' })])
+    vi.stubGlobal('fetch', m.impl)
+    setAccessToken('still-here')
+    const expired = vi.fn()
+    const failed = vi.fn()
+    const offExpired = onAuthExpired(expired)
+    const offFailed = onAuthRefreshFailed(failed)
+
+    const err = await phttp('/auth/me').catch(e => e)
+    expect(err.transient).toBe(true)
+    expect(err.refreshStatus).toBe(503)
+    expect(expired).not.toHaveBeenCalled()
+    expect(failed).toHaveBeenCalledTimes(1)
+    expect(failed.mock.calls[0][0]).toMatchObject({ kind: 'transient', status: 503 })
+    expect(getAccessToken()).toBe('still-here')
+
+    offExpired()
+    offFailed()
+  })
+
+  it('a network refresh failure is transient too — it never ends the session', async () => {
+    const m = mockFetch([res(401, {}), 'network'])
+    vi.stubGlobal('fetch', m.impl)
+    setAccessToken('still-here')
+    const expired = vi.fn()
+    const failed = vi.fn()
+    const offExpired = onAuthExpired(expired)
+    const offFailed = onAuthRefreshFailed(failed)
+
+    const err = await phttp('/auth/me').catch(e => e)
+    expect(err.transient).toBe(true)
+    expect(expired).not.toHaveBeenCalled()
+    expect(failed).toHaveBeenCalledTimes(1)
+    expect(failed.mock.calls[0][0]).toMatchObject({ kind: 'transient', status: null })
+    expect(getAccessToken()).toBe('still-here')
+
+    offExpired()
+    offFailed()
+  })
+
+  it('a definite 400 refresh rejection ends the session exactly once', async () => {
+    const m = mockFetch([res(401, {}), res(400, { error: 'invalid refresh' })])
+    vi.stubGlobal('fetch', m.impl)
+    const expired = vi.fn()
+    const failed = vi.fn()
+    const offExpired = onAuthExpired(expired)
+    const offFailed = onAuthRefreshFailed(failed)
+
+    const err = await phttp('/auth/me').catch(e => e)
+    expect(err.authExpired).toBe(true)
+    expect(expired).toHaveBeenCalledTimes(1)
+    expect(failed).not.toHaveBeenCalled()
+    expect(getAccessToken()).toBe(null)
+
+    offExpired()
+    offFailed()
+  })
+
+  it('accepts the platform success envelope around the refreshed token', async () => {
+    const m = mockFetch([res(200, { success: true, data: { access_token: 'nested-token' } })])
+    vi.stubGlobal('fetch', m.impl)
+    const result = await refreshSession()
+    expect(result).toEqual({ kind: 'ok', token: 'nested-token' })
+    expect(getAccessToken()).toBe('nested-token')
   })
 })

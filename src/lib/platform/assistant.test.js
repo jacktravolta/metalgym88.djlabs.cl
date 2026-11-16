@@ -225,6 +225,14 @@ describe('askAssistant — failure classification (never throws)', () => {
     expect(r.status).toBe(null)
   })
 
+  it('a transient refresh failure → transient, not auth', async () => {
+    const m = mockFetch([res(401, {}), res(503, { error: 'busy' })])
+    vi.stubGlobal('fetch', m.impl)
+    const r = await askAssistant('q')
+    expect(r.kind).toBe('transient')
+    expect(r.status).toBe(401)
+  })
+
   it('401 with a dead refresh → auth (the session listener has already flipped the app)', async () => {
     const m = mockFetch(deadSession)
     vi.stubGlobal('fetch', m.impl)

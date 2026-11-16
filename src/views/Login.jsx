@@ -6,6 +6,7 @@ import { Button } from '../components/ui.jsx'
 
 export default function Login() {
   const { setGuest } = useStore()
+  const authIssue = useStore(s => s.authIssue)
   const head = <>
     {/* The official badge instead of a generic glyph: the title below it
         already names the product, so the image itself stays decorative. */}
@@ -34,6 +35,11 @@ export default function Login() {
   return (
     <div className="narrow" style={wrap}>
       {head}
+      {authIssue && authIssue.kind === 'expired' && (
+        <div className="card small muted" role="status" style={{ maxWidth: 340, margin: '0 auto 16px', textAlign: 'left', lineHeight: 1.5 }}>
+          {t('Your session could not be renewed. Your training data is still safe on this device. Sign in again to continue, or return to the index.')}
+        </div>
+      )}
       <div style={{ maxWidth: 340, margin: '0 auto 40px', textAlign: 'left' }}>
         <AuthPanel mode="signin" close={() => { /* the gate re-renders as soon as a user exists */ }} />
       </div>

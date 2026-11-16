@@ -4,7 +4,7 @@ import { useStore } from './store/useStore.js'
 import { useUI } from './store/useUI.js'
 import { bindUI } from './components/ui.jsx'
 import { ACCENTS } from './lib/format.js'
-import { setLang, useLang } from './lib/i18n.js'
+import { setLang, useLang, t } from './lib/i18n.js'
 import { setNav } from './lib/nav.js'
 import { useWakeLock } from './lib/wakelock.js'
 import { startFlow } from './sheets.jsx'
@@ -34,6 +34,31 @@ function applyPrefs(theme, accent) {
   de.dataset.accent = ACCENTS[accent] ? accent : 'lime'
   const meta = document.querySelector('meta[name="theme-color"]')
   if (meta) meta.content = de.dataset.theme === 'light' ? '#f2f2f7' : '#000000'
+}
+
+// A temporary renewal problem is NOT a sign-out. The person keeps using the app and
+// the local log; this small, dismissible line simply says that the connection could
+// not renew the session and that the next request will try again.
+function SessionNotice() {
+  const issue = useStore(s => s.authIssue)
+  const dismiss = useStore(s => s.dismissAuthIssue)
+  if (!issue || issue.kind !== 'transient') return null
+  return (
+    <div role="status" style={{
+      position: 'fixed', zIndex: 80, top: 10, left: 10, right: 10, margin: '0 auto',
+      maxWidth: 560, display: 'flex', alignItems: 'center', gap: 10,
+      padding: '10px 12px', borderRadius: 12,
+      background: 'var(--surface)', border: '1px solid var(--sep)',
+      boxShadow: '0 10px 30px -18px rgba(0,0,0,.65)', fontSize: 13,
+    }}>
+      <span style={{ flex: 1, lineHeight: 1.4 }}>
+        {t('We could not renew your session right now. You are still signed in and your data is safe on this device. We will try again on the next request.')}
+      </span>
+      <button className="linklike" onClick={dismiss} style={{ all: 'unset', cursor: 'pointer', textDecoration: 'underline' }}>
+        {t('Dismiss')}
+      </button>
+    </div>
+  )
 }
 
 function Shell() {
@@ -88,6 +113,7 @@ function Shell() {
       </div>
       <TabBar onStart={startFlow} />
       <RestTimer />
+      <SessionNotice />
       <Modals />
       <CoachFab />
       <Toast />

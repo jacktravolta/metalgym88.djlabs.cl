@@ -57,7 +57,7 @@ const asUser = json => JSON.parse(localStorage.getItem(KEY))
 
 beforeEach(() => {
   localStorage.clear()
-  useStore.setState({ S: JSON.parse(JSON.stringify(DEF)), user: null, balance: null })
+  useStore.setState({ S: JSON.parse(JSON.stringify(DEF)), user: null, balance: null, authIssue: null })
 })
 
 afterEach(() => {
@@ -238,14 +238,29 @@ describe('pullState — platform document store', () => {
     expect(localStorage.getItem(DIRTY)).toBe('1')
   })
 
-  it('on 401 after the refresh attempt → session flips via onAuthExpired, data survives', async () => {
+  it('on a definite refresh rejection → the gate returns with an explanation, data survives', async () => {
     const m = mockFetch([res(401, {}), res(401, { error: 'no session' })])
     vi.stubGlobal('fetch', m.impl)
     setState(localOf(10, [{ id: 'w1' }]))
     user()
+    localStorage.setItem(KEY, JSON.stringify(localOf(10, [{ id: 'w1' }])))
     await expect(useStore.getState().pullState()).resolves.toBeUndefined()
-    expect(useStore.getState().user).toBe(null)                       // signed out…
-    expect(useStore.getState().S.workouts).toEqual([{ id: 'w1' }])    // …but data kept
+    expect(useStore.getState().user).toBe(null)                       // the session really ended…
+    expect(useStore.getState().authIssue).toEqual({ kind: 'expired' }) // …and the UI knows why
+    expect(useStore.getState().S.workouts).toEqual([{ id: 'w1' }])    // the local log is kept
+    expect(useStore.getState().S._ts).toBe(10)
+    expect(JSON.parse(localStorage.getItem(KEY)).workouts).toEqual([{ id: 'w1' }])
+  })
+
+  it('on a transient refresh failure → the person stays signed in and the local log is untouched', async () => {
+    const m = mockFetch([res(401, {}), res(503, { error: 'busy' })])
+    vi.stubGlobal('fetch', m.impl)
+    setState(localOf(10, [{ id: 'w1' }]))
+    user()
+    await expect(useStore.getState().pullState()).resolves.toBeUndefined()
+    expect(useStore.getState().user).not.toBe(null)
+    expect(useStore.getState().authIssue).toEqual({ kind: 'transient', status: 503 })
+    expect(useStore.getState().S.workouts).toEqual([{ id: 'w1' }])
     expect(useStore.getState().S._ts).toBe(10)
   })
 })

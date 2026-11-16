@@ -3,11 +3,11 @@
 // bonus all bind to this product's wallet, and GET /auth/me comes back with the balance.
 // Errors surface like the rest of the app (e.status, e.message) plus e.code for
 // machine-readable platform states the UI pauses on.
-import { phttp, setAccessToken, clearAccessToken, onAuthExpired } from './http.js'
+import { phttp, setAccessToken, clearAccessToken, onAuthExpired, onAuthRefreshFailed } from './http.js'
 import { withHeart, withHeartQuery } from './config.js'
 
 // Re-exported so callers only need the auth module for the whole session shape.
-export { onAuthExpired }
+export { onAuthExpired, onAuthRefreshFailed }
 
 // The account exists but the email still needs confirming — a distinct pause state,
 // not a plain failure. The UI offers to resend the link (magic link) instead of

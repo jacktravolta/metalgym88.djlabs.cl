@@ -251,6 +251,11 @@ function StateBlock({ kind, onOpenWallet }) {
       <Button variant="primary" onClick={onOpenWallet}>{t('Open my wallet')}</Button>
     </div>
   }
+  if (kind === 'transient') {
+    return <div className="muted small" style={{ textAlign: 'center', lineHeight: 1.5, padding: '8px 0' }}>
+      {t('We could not renew the session just now. Nothing was sent and nothing was charged. Your data is safe on this device — try again in a moment.')}
+    </div>
+  }
   if (kind === 'auth') {
     return <div className="muted small" style={{ textAlign: 'center', lineHeight: 1.5, padding: '8px 0' }}>
       {t('Your session has expired — sign in again and come back. Nothing here is stored, so the conversation starts fresh.')}
