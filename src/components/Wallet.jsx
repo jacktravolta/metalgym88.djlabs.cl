@@ -385,12 +385,14 @@ function WalletPanel({ close }) {
     </>}
 
     {/* ---------- cost per operation ---------- */}
-    <h4 className="sec">{t('Cost per operation')}</h4>
     {tariffs === null
-      ? <div className="dim small">…</div>
-      : tariffs.length === 0
-        ? <div className="dim small">{t('Costs show up here as soon as the assistant is configured.')}</div>
-        : <>
+      ? <>
+        <h4 className="sec">{t('Cost per operation')}</h4>
+        <div className="dim small">…</div>
+      </>
+      : tariffs.length > 0
+        ? <>
+          <h4 className="sec">{t('Cost per operation')}</h4>
           <div className="list">
             {tariffs.map(op => <div key={op.code} className="row between" style={{ padding: '9px 2px', borderBottom: '1px solid var(--sep)' }}>
               <span className="tt" style={{ fontSize: 15 }}>{op.label}</span>
@@ -402,7 +404,8 @@ function WalletPanel({ close }) {
           <div className="dim small" style={{ marginTop: 8, lineHeight: 1.5 }}>
             {t('The cost is always shown before an AI action starts — you decide each time, nothing runs on its own.')}
           </div>
-        </>}
+        </>
+        : null}
 
     {/* ---------- movements ---------- */}
     <h4 className="sec">{t('Movements')}</h4>

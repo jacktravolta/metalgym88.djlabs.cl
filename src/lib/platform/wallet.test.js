@@ -182,18 +182,37 @@ describe('movements', () => {
 })
 
 describe('tariffs', () => {
-  it('GETs /tariffs?heart=metalgym88 and renders whatever rows the platform returns', async () => {
+  it('GETs /tariffs?heart=metalgym88 and returns only this product\'s rows', async () => {
     const m = mockFetch([res(200, { tariffs: [
-      { operation: 'chat_simple', cost_credits: 1 },
-      { op: 'chat_doc', price: 5 },
+      { operation: 'hosting_monthly', cost_credits: 10 },
+      { operation: 'gym_ai_chat', cost_credits: 1 },
     ] })])
     vi.stubGlobal('fetch', m.impl)
     const out = await fetchTariffs()
     expect(m.seen[0].url).toBe(BASE + '/tariffs?heart=metalgym88')
     expect(out).toEqual([
-      { code: 'chat_simple', label: tariffLabel('chat_simple'), cost: 1 },
-      { code: 'chat_doc', label: tariffLabel('chat_doc'), cost: 5 },
+      { code: 'gym_ai_chat', label: tariffLabel('gym_ai_chat'), cost: 1 },
     ])
+  })
+
+  it('keeps only gym operations from the shared platform tariff payload', () => {
+    expect(normalizeTariffs([
+      { operation: 'hosting_monthly', cost_credits: 10 },
+      { operation: 'laboral_document', cost_credits: 4 },
+      { operation: 'gym_ai_chat', cost_credits: 1 },
+      { operation: 'tts', cost_credits: 2 },
+      { operation: 'pdf_generate', cost_credits: 3 },
+    ])).toEqual([
+      { code: 'gym_ai_chat', label: tariffLabel('gym_ai_chat'), cost: 1 },
+    ])
+  })
+
+  it('returns an empty list when the shared payload has only foreign operations', () => {
+    expect(normalizeTariffs([
+      { operation: 'hosting_monthly', cost_credits: 10 },
+      { operation: 'document_download', cost_credits: 1 },
+      { operation: 'url_analysis', cost_credits: 2 },
+    ])).toEqual([])
   })
 
   it('labels the known operations and humanizes anything new the platform adds', () => {

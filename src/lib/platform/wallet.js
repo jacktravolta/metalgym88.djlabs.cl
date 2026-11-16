@@ -190,7 +190,9 @@ export function tariffLabel(code) {
   return TARIFF_LABELS[code] || (code ? humanize(code).replace(/^\w/, c => c.toUpperCase()) : 'Operation')
 }
 
-// Renders whatever the platform returns; the gym adds its own rows server-side.
+// The shared platform's tariff table is global and /tariffs returns every product's rows.
+// This app owns the gym_ namespace, so foreign operations are excluded here and a future
+// gym operation appears automatically as soon as the platform registers it.
 export function normalizeTariffs(data) {
   const env = data && typeof data === 'object' && !Array.isArray(data) ? data : {}
   const src = Array.isArray(data) ? data : Array.isArray(env.tariffs) ? env.tariffs : Array.isArray(env.operations) ? env.operations : []
@@ -204,7 +206,7 @@ export function normalizeTariffs(data) {
         : typeof r.price === 'number' ? r.price : null
       return { code, label: tariffLabel(code), cost }
     })
-    .filter(x => x.code)
+    .filter(x => typeof x.code === 'string' && x.code.startsWith('gym_'))
 }
 
 export async function fetchTariffs(opts = {}) {
