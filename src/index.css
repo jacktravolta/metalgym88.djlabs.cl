@@ -728,7 +728,7 @@ h4.sec{
 .sheet h3{font-size:20px;font-weight:600;letter-spacing:-.021em;margin-bottom:14px}
 .center{
   position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
-  width:min(84vw,300px);background:var(--bg-el);border-radius:var(--r-lg);padding:20px;
+  width:min(84vw,320px);background:var(--bg-el);border-radius:var(--r-lg);padding:20px;
   box-shadow:0 20px 60px -12px rgba(0,0,0,.5);
   animation:pop .28s var(--ease);
 }
@@ -1048,8 +1048,16 @@ body.resting #coach-fab{bottom:calc(200px + var(--sab))}
      column simply fills the space. max() covers both: 14px from the window while the
      column is narrower than 1080, and 14px inside the column once it is full width. */
   #coach-fab{left:auto;right:max(14px,calc(100% - 1314px));bottom:24px}
-  .sheet{left:calc(50% + 124px);right:auto;margin-left:-320px;width:640px;border-radius:var(--r-xl) var(--r-xl) 0 0}
-  .center{left:calc(50% + 124px);width:340px}
+  /* The sheet grows with the content column but never past 820px. The margin is
+     exactly half of the fluid width: -410px at the maximum, then 140px - 50vw
+     when the viewport constrains the sheet. */
+  .sheet{
+    left:calc(50% + 124px);right:auto;
+    margin-left:max(-410px,calc(140px - 50vw));
+    width:min(820px,calc(100vw - 280px));
+    border-radius:var(--r-xl) var(--r-xl) 0 0;
+  }
+  .center{left:calc(50% + 124px);width:420px}
 
   .exmedia img{height:380px}
   .hm-wrap{display:flex;flex-direction:column;align-items:center}
