@@ -576,6 +576,7 @@ export default {
   'Assistant': 'Asistente',
   'Back': 'Volver',
   'Back to sign in': 'Volver a iniciar sesión',
+  'Back to the index': 'Volver al inicio',
   'Check the payment': 'Revisar el pago',
   'Check your email': 'Revisa tu correo',
   'Choose an amount first — pick a pack or type one.': 'Elige primero un monto — selecciona un paquete o escribe uno.',

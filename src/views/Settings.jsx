@@ -10,6 +10,7 @@ import { wakeLockSupported } from '../lib/wakelock.js'
 import { t, LANGS, INSTR_LANGS } from '../lib/i18n.js'
 import { DEMO, REPO } from '../lib/demo.js'
 import { MOBILE, shareExport, syncReminder } from '../lib/mobile.js'
+import { signOutAndGoToIndex } from '../lib/nav.js'
 import { openWallet } from '../components/Wallet.jsx'
 import { AssistantRow } from '../components/Assistant.jsx'
 import Avatar from '../components/Avatar.jsx'
@@ -63,7 +64,7 @@ export default function Settings() {
     message: t('Signs this session out, including on this device. Your account and data are kept — sign in again anytime.'),
     confirmText: t('Sign out everywhere'), danger: true,
     onConfirm: async () => {
-      try { await signOutAll(); nav('/home'); toast(t('Signed out. Sign in again anytime.')) }
+      try { await signOutAndGoToIndex(signOutAll); toast(t('Signed out. Sign in again anytime.')) }
       catch (e) { toast(t('Could not sign out everywhere — you are still signed in.')) }
     },
   })
@@ -95,7 +96,7 @@ export default function Settings() {
           accessory="chevron" onClick={openWallet} />
         {/* The paid feature itself; renders itself disabled with an honest line when offline. */}
         <AssistantRow />
-        <Row icon="signOut" iconTint="var(--red)" title={t('Sign out')} danger onClick={() => confirmSheet({ title: t('Sign out?'), message: t('Your data is synced to your profile first, then cleared from this device.'), confirmText: t('Sign out'), danger: true, onConfirm: () => { signOut(); nav('/home') } })} />
+        <Row icon="signOut" iconTint="var(--red)" title={t('Sign out')} danger onClick={() => confirmSheet({ title: t('Sign out?'), message: t('Your data is synced to your profile first, then cleared from this device.'), confirmText: t('Sign out'), danger: true, onConfirm: () => signOutAndGoToIndex(signOut) })} />
         <Row icon="shield" iconTint="var(--red)" title={t('Sign out everywhere')} subtitle={t('Ends this session, including on this device. Your account and data are kept.')} danger onClick={signOutEverywhere} />
       </> : <>
         <Row icon="sparkles" iconTint="var(--acc)" title={t('Create account')} subtitle={t('Keeps your data safe and separate per person.')} accessory="chevron" onClick={registerHere} />

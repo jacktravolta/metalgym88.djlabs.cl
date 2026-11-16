@@ -18,6 +18,7 @@ import Icon from './Icon.jsx'
 import { Button } from './ui.jsx'
 import { t } from '../lib/i18n.js'
 import { consumeMagicLink, clearLandingUrl } from '../lib/platform/landing.js'
+import { goToIndex } from '../lib/nav.js'
 
 // The app's own surfaces: the black backdrop and the green accent, no new CSS.
 const overlay = {
@@ -89,6 +90,7 @@ export default function MagicLinkLanding({ token }) {
           <div style={actions}>
             <Button variant="primary" onClick={() => setPhase('ready')}>{t('Back to sign in')}</Button>
             <Button variant="ghost" className="dim" onClick={retry}>{t('Try again')}</Button>
+            <Button variant="ghost" className="dim" icon="chevronLeft" onClick={() => goToIndex()}>{t('Back to the index')}</Button>
           </div>
         </div>
       )}
