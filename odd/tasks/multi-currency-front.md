@@ -109,23 +109,23 @@ de la variante salen de la configuración del servidor.
 
 ## Tareas
 
-- [ ] **T1 — `wallet.js`: la cotización.** `normalizeQuote(data)` → una forma
+- [x] **T1 — `wallet.js`: la cotización.** `normalizeQuote(data)` → una forma
       interna canónica; `fetchQuote()` (tolerante: devuelve `null` si la API no
       tiene el endpoint o falla); `formatMoney(amount, currency)`.
       `normalizeQuote` acepta la forma fijada arriba y también la forma
       `options: [...]` de la primera versión del contrato (robustez: la API
       puede llegar con cualquiera de las dos).
-- [ ] **T2 — `wallet.js`: la orden por moneda.** `createOrder` acepta la
+- [x] **T2 — `wallet.js`: la orden por moneda.** `createOrder` acepta la
       moneda: CLP → `{ amount_clp, currency: 'CLP', ... }`; USD →
       `{ currency: 'USD', variant_id, ... }` **sin `amount_clp`**. La clave de
       idempotencia y el retry de red se conservan intactos.
-- [ ] **T3 — `Wallet.jsx`: la UI de moneda.** Al abrir la billetera se pide la
+- [x] **T3 — `Wallet.jsx`: la UI de moneda.** Al abrir la billetera se pide la
       cotización; se muestra el país detectado, el selector de moneda y el
       monto de la moneda elegida (packs/monto libre en CLP; lista de variantes
       en USD). Sin cotización → modo CLP, sin cambios visibles.
-- [ ] **T4 — `src/locales/es.js`**: el copy nuevo, en español neutro, con el
+- [x] **T4 — `src/locales/es.js`**: el copy nuevo, en español neutro, con el
       tono del producto.
-- [ ] **T5 — `src/lib/platform/wallet.test.js`**: los tests de la lógica nueva
+- [x] **T5 — `src/lib/platform/wallet.test.js`**: los tests de la lógica nueva
       (normalización, degradación a CLP, cuerpo de la orden por moneda,
       formato de dinero). El test que fija el cuerpo exacto de la orden CLP se
       actualiza **a propósito** (ahora incluye `currency`).
@@ -157,8 +157,35 @@ de la variante salen de la configuración del servidor.
 
 ## Progreso
 
-_(lo actualiza el escritor al cerrar cada tarea, con el resultado observado y
-el id del commit)_
+- **T1 — cerrada en `68ad668`** (`feat(wallet): add tolerant multi-currency quote support`).
+  `normalizeQuote` acepta `currencies[]` y `options[]`, rechaza datos inválidos,
+  `fetchQuote` degrada a `null` ante 404 o error de red y `formatMoney` distingue
+  CLP entero de USD con dos decimales. Verificación focalizada observada:
+  `npx vitest run src/lib/platform/wallet.test.js` → 1 archivo / 37 tests en verde.
+- **T2 — cerrada en `8d0d88e`** (`feat(wallet): create orders in the selected currency`).
+  El cuerpo CLP ahora incluye `currency: 'CLP'`; el cuerpo USD incluye
+  `variant_id` y no incluye `amount_clp` ni créditos inventados. La clave de
+  idempotencia y el mismo cuerpo se reutilizan en los reintentos de red de ambas
+  rutas. Verificación focalizada observada:
+  `npx vitest run src/lib/platform/wallet.test.js` → 1 archivo / 39 tests en verde.
+- **T3 — cerrada en `f8fe62f`** (`feat(wallet): add currency selection to the recharge panel`).
+  La billetera consulta la cotización al abrirse, muestra el país detectado y el
+  selector, mantiene los packs y el monto libre para CLP, muestra las variantes
+  fijas con precio y créditos para USD y degrada en silencio al flujo CLP actual
+  cuando no hay cotización. Verificación observada: `npx vite build` → build
+  correcto (137 módulos; solo la advertencia preexistente de chunks > 1500 kB).
+- **T4 — cerrada en el commit de cierre** (`chore(i18n): add Spanish copy for currency top-ups`).
+  Se añadieron las seis traducciones nuevas de la sección de moneda, en español
+  neutro y sin presión comercial. El hash corto de este commit se consigna en el
+  informe final de ejecución. Verificación observada:
+  `npx vitest run src/lib/locales.test.js` → 1 archivo / 2 tests en verde.
+- **T5 — cerrada con los tests entregados junto al comportamiento en `68ad668` y
+  `8d0d88e`**. Quedaron cubiertos ambas formas de cotización, datos inválidos,
+  degradación por 404 y red, formato de dinero, cuerpos exactos CLP/USD y
+  reutilización de la clave idempotente en reintentos USD. El test CLP exacto se
+  actualizó a propósito para incluir `currency: 'CLP'`. Verificación final observada:
+  `npx vitest run` → 31 archivos / 466 tests en verde, y `npx vite build` → build
+  correcto (137 módulos; solo la advertencia preexistente de chunks > 1500 kB).
 
 ## Espejo en Engram
 
