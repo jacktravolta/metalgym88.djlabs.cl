@@ -654,7 +654,7 @@ function AssistantPanel({ close, context, initialRequest = null }) {
           ><Icon name="trash" /></button>
         </div>
       </div>
-      {threadsOpen && threads.length > 0 && <div style={{ display: 'grid', gap: 2, marginTop: 6, maxHeight: 120, overflowY: 'auto' }}>
+      {threadsOpen && threads.length > 0 && <div className="coach-scroll" style={{ display: 'grid', gap: 2, marginTop: 6, maxHeight: 120, overflowY: 'auto' }}>
         {threads.map(thread => {
           const active = thread.conversationId === conversationId
           return <div key={thread.conversationId} className="row between" style={{ padding: '3px 0', gap: 8 }}>
@@ -696,7 +696,7 @@ function AssistantPanel({ close, context, initialRequest = null }) {
       </button>
     )}
 
-    <div ref={listRef} style={{
+    <div ref={listRef} className="coach-scroll" style={{
       display: 'grid', gap: 10, maxHeight: '42vh', overflowY: 'auto',
       padding: '6px 2px', marginBottom: 12, scrollBehavior: 'smooth',
       // Opaque: a translucent well let the sheet's own content show through the
