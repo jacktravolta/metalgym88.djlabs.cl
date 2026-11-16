@@ -23,6 +23,7 @@ import { askAssistant, fetchAssistantTariff, isOffline } from '../lib/platform/a
 import { requestMagicLink } from '../lib/platform/auth.js'
 import { buildCoachPayload } from '../lib/coach-context.js'
 import { createCoachRunGuard } from '../lib/coach-run.js'
+import { withCoachIdentity } from '../lib/coach-request.js'
 import { toSpeechText } from '../lib/speech.js'
 import { resolveExercises, exerciseCards } from '../lib/coach-exercises.js'
 import {
@@ -287,7 +288,7 @@ function ConfirmErase({ close, onConfirm }) {
   </div>
 }
 
-function AssistantPanel({ close, context }) {
+function AssistantPanel({ close, context, initialRequest = null }) {
   const balance = useStore(s => s.balance)
   const soundEnabled = useStore(s => s.S.sound)
   // The two coach switches live in the app state, so they are remembered on the
@@ -307,6 +308,7 @@ function AssistantPanel({ close, context }) {
   const online = useOnline()
   const listRef = useRef(null)
   const runGuardRef = useRef(null)
+  const initialSentRef = useRef(false)
   if (!runGuardRef.current) runGuardRef.current = createCoachRunGuard()
   const { speak, stop, speaking } = useTTS()
   const [reveal, setReveal] = useState(null)   // { id, idx, full } — the write-out of a long answer
@@ -397,21 +399,27 @@ function AssistantPanel({ close, context }) {
   const offline = !online
   const disabled = sending || offline
 
-  const send = async () => {
-    const q = input.trim()
+  const send = async (request = null) => {
+    const isInitial = !!(request && typeof request.question === 'string')
+    const q = (isInitial ? request.question : input).trim()
     if (!q || disabled) return
-    setInput('')
+    if (!isInitial) setInput('')
     setKind(null)
     // The catalogue is resolved from THIS question, at THIS moment: the artifact
     // the coach receives and the cards the answer shows have to talk about the
     // same exercises, and the question is the only thing that knows which ones.
-    const matches = resolveExercises(q, { state: useStore.getState().S })
+    // The exercise sheet already resolved the exact exercise it opened with.
+    const matches = isInitial && Array.isArray(request.exerciseMatches) && request.exerciseMatches.length
+      ? request.exerciseMatches
+      : resolveExercises(q, { state: useStore.getState().S })
+    const requestConversationId = isInitial ? null : conversationId
     const id = `m${Date.now()}`
     const question = { role: 'user', text: q }
     const answer = { role: 'assistant', text: '', id, streaming: true, exercises: exerciseCards(matches) }
     // The window of the conversation: the thread's own window governs the panel and
-    // the saved thread alike — one window, one rule.
-    const history = msgs.filter(m => m.role !== 'typing')
+    // the saved thread alike — one window, one rule. An exercise opens a fresh
+    // thread; its follow-ups then continue on the id the first answer returns.
+    const history = isInitial ? [] : msgs.filter(m => m.role !== 'typing')
     const next = [...history, question, answer].slice(-MAX_THREAD_MSGS)
     setMsgs(m => [...m.filter(x => x.role !== 'typing'), question, { role: 'typing' }].slice(-MAX_THREAD_MSGS))
     setSending(true)
@@ -420,7 +428,7 @@ function AssistantPanel({ close, context }) {
     let r
     try {
       r = await askAssistant(q, {
-        conversationId,
+        conversationId: requestConversationId,
         context,
         exerciseMatches: matches,
         signal: run.controller.signal,
@@ -429,7 +437,7 @@ function AssistantPanel({ close, context }) {
       if (!runGuardRef.current.isCurrent(run)) return
       runGuardRef.current.complete(run)
       setSending(false)
-      setInput(q)
+      if (!isInitial) setInput(q)
       setKind('error')
       return
     }
@@ -442,7 +450,7 @@ function AssistantPanel({ close, context }) {
 
     if (r.kind === 'ok') {
       if (r.balance != null) useStore.setState({ balance: r.balance })
-      const nextConversationId = r.conversationId || conversationId
+      const nextConversationId = r.conversationId || requestConversationId
       if (nextConversationId) setConversationId(nextConversationId)
       setMsgs(m => [...m.filter(x => x.role !== 'typing'), answer].slice(-MAX_THREAD_MSGS))
       setReveal({ id, idx: 0, full: r.answer })
@@ -456,10 +464,26 @@ function AssistantPanel({ close, context }) {
         setThreads(readCoachMemory().threads)
       }
     } else {
-      setInput(q)
+      if (!isInitial) setInput(q)
       setKind(r.kind)
     }
   }
+
+  // The exercise sheet asks in the SAME action that opens the panel. The guard
+  // makes the effect safe under React StrictMode: the paid question is sent
+  // once, even when the development renderer mounts effects twice.
+  useEffect(() => {
+    if (!initialRequest) return
+    const timer = setTimeout(() => {
+      if (initialSentRef.current) return
+      initialSentRef.current = true
+      setMsgs([])
+      setConversationId(null)
+      setActiveCoachThread(null)
+      void send(initialRequest)
+    }, 0)
+    return () => clearTimeout(timer)
+  }, [initialRequest])
 
   // A card opens the library with that exercise in it. The sheet closes first,
   // so the person lands on the library and not behind a panel.
@@ -621,7 +645,7 @@ function AssistantPanel({ close, context }) {
     </div>
 
     <div style={gap}>
-      <Button variant="primary" disabled={disabled || !input.trim()} onClick={send}>
+      <Button variant="primary" disabled={disabled || !input.trim()} onClick={() => send()}>
         {sending ? t('Thinking…') : t('Send')}
       </Button>
       <Button variant="ghost" className="dim" onClick={close}>{t('Close')}</Button>
@@ -636,15 +660,17 @@ function AssistantPanel({ close, context }) {
 // The context is captured HERE, at the moment the coach opens: the screen the user is
 // standing on is read once, and the same snapshot travels with every question of the
 // conversation (so a follow-up still knows what the user was looking at).
-export function openAssistant() {
+export function openAssistant(options = {}) {
   if (MOBILE || DEMO) return null
-  if (!useStore.getState().user) return null
-  const context = buildCoachPayload()
+  const user = useStore.getState().user
+  if (!user) return null
+  const initialRequest = options && options.initialRequest ? options.initialRequest : null
+  const context = withCoachIdentity(buildCoachPayload(), user)
   // The coach's own sheet: a solid black stage. The default sheet is the elevated
   // grey, and over a chat full of bubbles and cards that grey read as translucent —
   // the app behind seemed to show through and the conversation got confusing.
   return useUI.getState().openSheet(
-    close => <AssistantPanel close={close} context={context} />,
+    close => <AssistantPanel close={close} context={context} initialRequest={initialRequest} />,
     { className: 'sheet-coach' }
   )
 }
