@@ -499,7 +499,16 @@ function AssistantPanel({ close, context }) {
     <div style={{ marginBottom: 8 }}>
       <div className="row between" style={{ alignItems: 'center', gap: 8 }}>
         <span className="dim small">{t('Your conversations')}</span>
-        <Button variant="ghost" className="dim" disabled={sending} onClick={newConversation}>{t('New conversation')}</Button>
+      </div>
+      {/* The two actions belong together: one compact green action and one compact
+          red action, always on the same row. The destructive one still asks first. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 8, marginTop: 6 }}>
+        <Button variant="primary" size="xs" icon="plus" disabled={sending} onClick={newConversation} style={{ width: '100%', minWidth: 0 }}>
+          {t('New conversation')}
+        </Button>
+        <Button variant="danger" size="xs" icon="trash" disabled={sending} onClick={askEraseEveryThread} style={{ width: '100%', minWidth: 0 }}>
+          {t('Delete all conversations')}
+        </Button>
       </div>
       {threads.length > 0 && <div style={{ display: 'grid', gap: 2, marginTop: 6, maxHeight: 120, overflowY: 'auto' }}>
         {threads.map(thread => {
@@ -522,11 +531,6 @@ function AssistantPanel({ close, context }) {
             >×</button>
           </div>
         })}
-      </div>}
-      {/* The erase control is there as long as there is something to erase: the
-          person must never have to hunt for it. */}
-      {(threads.length > 0 || msgs.length > 0) && <div style={{ marginTop: 6 }}>
-        <Button variant="danger" icon="trash" onClick={askEraseEveryThread}>{t('Delete all conversations')}</Button>
       </div>}
     </div>
 
