@@ -53,3 +53,20 @@ export function withCoachIdentity(context, user) {
   if (lines.includes(identity)) return { ...base, lines }
   return { ...base, lines: [...lines, identity] }
 }
+
+// The person is introduced ONCE per conversation: the FIRST prompt carries the
+// name, the follow-ups do not repeat it. The context line above is a hint; this
+// is the request itself, and the model needs the name in the question to greet
+// the person by it.
+//
+// The bubble keeps the person's own words: this only shapes what travels to the
+// platform, never what the person reads in their own message.
+export function withPersonIntro(question, user) {
+  const person = coachPersonName(user)
+  const q = String(question == null ? '' : question).trim()
+  if (!person || !q) return q
+  // A question that already names the person is left alone: the exercise sheet
+  // says "Hi Ana, summarize…" and that is enough.
+  if (q.toLowerCase().includes(person.toLowerCase())) return q
+  return t('My name is {0}. {1}', person, q)
+}

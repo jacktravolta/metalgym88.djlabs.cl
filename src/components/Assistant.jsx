@@ -13,7 +13,7 @@
 // localStorage key. It never enters the store's S blob, so it is never mirrored
 // to the platform. The person can delete a thread or all of them, and signing
 // out erases the local memory.
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import { DEMO } from '../lib/demo.js'
@@ -23,7 +23,8 @@ import { askAssistant, fetchAssistantTariff, isOffline } from '../lib/platform/a
 import { requestMagicLink } from '../lib/platform/auth.js'
 import { buildCoachPayload } from '../lib/coach-context.js'
 import { createCoachRunGuard } from '../lib/coach-run.js'
-import { withCoachIdentity } from '../lib/coach-request.js'
+import { withCoachIdentity, withPersonIntro } from '../lib/coach-request.js'
+import { parseChatMedia, hostOf } from '../lib/chat-media.js'
 import { toSpeechText } from '../lib/speech.js'
 import { resolveExercises, exerciseCards } from '../lib/coach-exercises.js'
 import {
@@ -134,6 +135,63 @@ function ExerciseCards({ cards, onOpen }) {
   </div>
 }
 
+// What the model wrote, rendered as what it really is.
+//
+// A URL is never shown as raw text: an image becomes a figure with a short
+// caption, a link becomes a link that opens in another window. The speech
+// cleaner works from the same rule, so what the person reads and what the
+// voice says describe the same thing.
+function MessageBody({ text }) {
+  const segments = useMemo(() => parseChatMedia(text || ''), [text])
+  return <>{segments.map((segment, index) => {
+    if (segment.type === 'image') return <MediaFigure key={index} segment={segment} />
+    if (segment.type === 'link') return <MediaLink key={index} segment={segment} />
+    return <span key={index}>{segment.text}</span>
+  })}</>
+}
+
+// A figure: the image itself, with a caption that numbers it inside this
+// answer. If the image does not load, the honest fallback is the link — never a
+// broken frame the person has to puzzle out.
+function MediaFigure({ segment }) {
+  const [failed, setFailed] = useState(false)
+  if (failed) {
+    return <MediaLink segment={{ ...segment, label: t('Open image'), host: hostOf(segment.url) }} />
+  }
+  return <figure style={{ margin: '8px 0', maxWidth: '100%' }}>
+    <a href={segment.url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-block', maxWidth: '100%' }}>
+      <img
+        src={segment.url}
+        alt={segment.alt || t('Figure {0}', segment.figure)}
+        loading="lazy"
+        decoding="async"
+        onError={() => setFailed(true)}
+        style={{
+          maxWidth: '100%', height: 'auto', display: 'block', borderRadius: 12,
+          border: '1px solid var(--sep)', background: 'var(--surface-2)',
+        }}
+      />
+    </a>
+    <figcaption className="dim small" style={{ marginTop: 4 }}>{t('Figure {0}', segment.figure)}</figcaption>
+  </figure>
+}
+
+// A link that opens in another window. The label is the one the answer gave,
+// or a plain "Link"; the host sits beside it so the person knows where it goes
+// without reading the whole address.
+function MediaLink({ segment }) {
+  const label = segment.label || t('Link')
+  return <a
+    href={segment.url}
+    target="_blank"
+    rel="noopener noreferrer"
+    style={{ color: 'var(--acc)', wordBreak: 'break-word' }}
+  >
+    {label}
+    {segment.host ? <span className="dim small"> · {segment.host}</span> : null}
+  </a>
+}
+
 function Bubble({ m, onSpeak, onOpenExercise }) {
   const mine = m.role === 'user'
   const isTyping = m.role === 'typing'
@@ -164,7 +222,7 @@ function Bubble({ m, onSpeak, onOpenExercise }) {
         ) : (
           <>
             <div style={{ paddingRight: 28 }}>
-              {m.text}
+              <MessageBody text={m.text} />
               {m.streaming && <span style={{
                 display:'inline-block', width:2, height:'1em', marginLeft:2,
                 background:'var(--acc)', verticalAlign:'text-bottom', animation:'caret 1s steps(2) infinite'
@@ -302,6 +360,7 @@ function AssistantPanel({ close, context, initialRequest = null }) {
   const [input, setInput] = useState('')
   const [conversationId, setConversationId] = useState(null)
   const [threads, setThreads] = useState([]) // the conversations saved on this device
+  const [threadsOpen, setThreadsOpen] = useState(false) // the list is a tab the person minimizes
   const [sending, setSending] = useState(false)
   const [kind, setKind] = useState(null)     // null | 'not_available' | 'insufficient_credits' | 'auth' | 'error'
   const [tariff, setTariff] = useState(undefined) // undefined = loading, null = not served, { cost } = served
@@ -425,9 +484,15 @@ function AssistantPanel({ close, context, initialRequest = null }) {
     setSending(true)
 
     const run = runGuardRef.current.begin()
+    // The person is named ONCE per conversation: the first prompt introduces the
+    // name, the follow-ups do not repeat it. The bubble keeps their own words.
+    const firstOfConversation = isInitial || !conversationId
+    const prompt = firstOfConversation
+      ? withPersonIntro(q, useStore.getState().user)
+      : q
     let r
     try {
-      r = await askAssistant(q, {
+      r = await askAssistant(prompt, {
         conversationId: requestConversationId,
         context,
         exerciseMatches: matches,
@@ -460,7 +525,15 @@ function AssistantPanel({ close, context, initialRequest = null }) {
       // and nothing about it is sent to the platform. The memory holds the FINAL
       // text — the write-out on screen is only a display effect.
       if (nextConversationId) {
-        upsertCoachThread(nextConversationId, next.map(m => (m.id === id ? { ...m, text: r.answer, streaming: false } : m)))
+        // The title of a chat opened from the exercise sheet is the EXERCISE,
+        // not the automatic greeting question: "Hola Don Jack, este es un
+        // resumen del ejercicio…" is a terrible name for a conversation.
+        const title = isInitial && request.exerciseName ? request.exerciseName : ''
+        upsertCoachThread(
+          nextConversationId,
+          next.map(m => (m.id === id ? { ...m, text: r.answer, streaming: false } : m)),
+          { title }
+        )
         setThreads(readCoachMemory().threads)
       }
     } else {
@@ -553,19 +626,49 @@ function AssistantPanel({ close, context, initialRequest = null }) {
     {/* The conversations saved on this device. They never leave it. */}
     <div style={{ marginBottom: 8 }}>
       <div className="row between" style={{ alignItems: 'center', gap: 8 }}>
-        <span className="dim small">{t('Your conversations')}</span>
+        {/* The list is a tab the person can minimize: the conversation itself is
+            what the panel is for, and the list can take a lot of room. */}
+        <button
+          onClick={() => setThreadsOpen(v => !v)}
+          aria-expanded={threadsOpen}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6, background: 'transparent',
+            border: 'none', color: 'var(--label-2)', font: 'inherit', padding: '2px 0',
+            cursor: 'pointer', minWidth: 0,
+          }}
+        >
+          <Icon name="chevronRight" style={{ transform: threadsOpen ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }} />
+          <span className="small">{t('Your conversations')}{threads.length > 0 ? ` (${threads.length})` : ''}</span>
+        </button>
+        {/* The two actions are always reachable, and they are small on purpose:
+            the list is the thing that takes space, not the controls. The
+            destructive one still asks first. */}
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexShrink: 0 }}>
+          <button
+            onClick={newConversation}
+            disabled={sending}
+            aria-label={t('New conversation')}
+            title={t('New conversation')}
+            style={{
+              width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              borderRadius: 8, border: '1px solid var(--sep)', background: 'var(--surface)',
+              color: 'var(--acc)', cursor: 'pointer', padding: 0,
+            }}
+          ><Icon name="plus" /></button>
+          <button
+            onClick={askEraseEveryThread}
+            disabled={sending}
+            aria-label={t('Delete all conversations')}
+            title={t('Delete all conversations')}
+            style={{
+              width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              borderRadius: 8, border: '1px solid var(--sep)', background: 'var(--surface)',
+              color: 'var(--red)', cursor: 'pointer', padding: 0,
+            }}
+          ><Icon name="trash" /></button>
+        </div>
       </div>
-      {/* The two actions belong together: one compact green action and one compact
-          red action, always on the same row. The destructive one still asks first. */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 8, marginTop: 6 }}>
-        <Button variant="primary" size="xs" icon="plus" disabled={sending} onClick={newConversation} style={{ width: '100%', minWidth: 0 }}>
-          {t('New conversation')}
-        </Button>
-        <Button variant="danger" size="xs" icon="trash" disabled={sending} onClick={askEraseEveryThread} style={{ width: '100%', minWidth: 0 }}>
-          {t('Delete all conversations')}
-        </Button>
-      </div>
-      {threads.length > 0 && <div style={{ display: 'grid', gap: 2, marginTop: 6, maxHeight: 120, overflowY: 'auto' }}>
+      {threadsOpen && threads.length > 0 && <div style={{ display: 'grid', gap: 2, marginTop: 6, maxHeight: 120, overflowY: 'auto' }}>
         {threads.map(thread => {
           const active = thread.conversationId === conversationId
           return <div key={thread.conversationId} className="row between" style={{ padding: '3px 0', gap: 8 }}>

@@ -25,6 +25,15 @@ describe('toSpeechText', () => {
     expect(toSpeechText('![un gráfico](https://ejemplo.cl/g.png)')).toBe('un gráfico')
   })
 
+  it('never reads a bare URL out loud — it says what the bubble shows', () => {
+    // An image address is a figure on screen, a link address is a link: the
+    // voice says the same thing instead of spelling out the address.
+    expect(toSpeechText('Mira https://cdn.ejemplo.cl/press.jpg')).toBe('Mira imagen')
+    expect(toSpeechText('Mira https://ejemplo.cl/guia')).toBe('Mira enlace')
+    expect(toSpeechText('<https://ejemplo.cl/guia>')).toBe('enlace')
+    expect(toSpeechText('https://cdn.ejemplo.cl/press.jpg')).not.toContain('https')
+  })
+
   it('drops list, heading and quote markers', () => {
     expect(toSpeechText('## Plan\n- squats\n- press\n\n> cuida la espalda')).toBe(
       'Plan\nsquats\npress\n\ncuida la espalda'

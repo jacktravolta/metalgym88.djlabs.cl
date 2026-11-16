@@ -3,6 +3,7 @@ import {
   buildExerciseSummaryRequest,
   openExerciseCoach,
   withCoachIdentity,
+  withPersonIntro,
 } from './coach-request.js'
 
 const exercise = { id: '0025', n: 'Press banca con barra' }
@@ -41,5 +42,25 @@ describe('exercise-sheet coach request', () => {
     const request = buildExerciseSummaryRequest(exercise, null)
     expect(request.question).not.toContain('null')
     expect(withCoachIdentity(null, null)).toBe(null)
+  })
+})
+
+describe('the name in the first prompt of a conversation', () => {
+  it('introduces the person by name when the question does not name them', () => {
+    const prompt = withPersonIntro('¿Cómo hago press de banca?', { name: 'Ana' })
+    expect(prompt).toContain('Ana')
+    expect(prompt).toContain('¿Cómo hago press de banca?')
+  })
+
+  it('leaves a question that already names the person alone', () => {
+    const question = 'Hi Ana, summarize the exercise “Press banca con barra”.'
+    expect(withPersonIntro(question, { name: 'Ana' })).toBe(question)
+  })
+
+  it('does not invent a name when the app has none', () => {
+    expect(withPersonIntro('¿Cómo hago press?', null)).toBe('¿Cómo hago press?')
+    expect(withPersonIntro('¿Cómo hago press?', {})).toBe('¿Cómo hago press?')
+    expect(withPersonIntro('', { name: 'Ana' })).toBe('')
+    expect(withPersonIntro(null, { name: 'Ana' })).toBe('')
   })
 })

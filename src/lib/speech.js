@@ -8,6 +8,7 @@
 // rules are deliberately conservative: text that is not a marker survives
 // untouched, so a price ("$15.000"), a percentage ("40%") or a code name
 // ("user_id") is still read the way it was written.
+import { isImageUrl } from './chat-media.js'
 export function toSpeechText(input) {
   if (input == null) return ''
   let t = String(input).replace(/\r\n?/g, '\n')
@@ -23,6 +24,15 @@ export function toSpeechText(input) {
   t = t.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
   // Autolinks: <https://…> -> https://…
   t = t.replace(/<((?:https?:\/\/|mailto:)[^>\s]+)>/g, '$1')
+
+  // A bare URL is not speech either. The bubble shows it as a figure (an image)
+  // or as a link, and the voice says the SAME thing instead of reading the
+  // address out loud: "https://cdn…/press.jpg" read character by character is
+  // noise, not information. The wording follows what the person sees.
+  t = t.replace(/https?:\/\/[^\s<>"'`]+/gi, match => {
+    const address = match.replace(/[.,;:!?]+$/, '')
+    return isImageUrl(address) ? 'imagen' : 'enlace'
+  })
 
   // Emphasis, widest first: ***both***, **bold**, __bold__, *italic*, _italic_
   // The content stays on one line: a stray "*" far away from its partner must

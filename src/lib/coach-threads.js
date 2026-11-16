@@ -66,11 +66,25 @@ function finiteTime(value, fallback) {
   return Number.isFinite(value) ? value : fallback
 }
 
+// A conversation is NAMED, not quoted. The greeting and everything after the
+// first sentence are dropped, so the automatic question from the exercise sheet
+// ("Hola Don Jack, resume el ejercicio…") can never become the title of the
+// chat: a title is a handle for the person, not the question itself.
+const TITLE_GREETING = /^(hola|hey|hi|buenas|buenos días|buenas tardes|buenas noches|querido|querida)\b[\s,:!¡]*/i
+
 function cleanTitle(value) {
-  return String(value || '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, MAX_THREAD_TITLE_CHARS)
+  const raw = String(value || '').replace(/\s+/g, ' ').trim()
+  if (!raw) return ''
+  const greeted = TITLE_GREETING.test(raw)
+  let s = raw.replace(TITLE_GREETING, '')
+  // The name that came right after the greeting is not part of the title either.
+  if (greeted) s = s.replace(/^[^,.!?¿¡]{1,40},\s*/, '')
+  // The first sentence is the topic; the rest is noise.
+  const cut = s.search(/[.!?¿¡](\s|$)/)
+  if (cut > 0) s = s.slice(0, cut + 1)
+  s = s.replace(/\s+/g, ' ').trim()
+  if (!s) return ''
+  return s.length > MAX_THREAD_TITLE_CHARS ? s.slice(0, MAX_THREAD_TITLE_CHARS).trimEnd() : s
 }
 
 /**

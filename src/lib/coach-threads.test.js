@@ -172,6 +172,35 @@ describe('coach thread memory', () => {
     expect(long).toHaveLength(MAX_THREAD_TITLE_CHARS)
   })
 
+  it('never lets the greeting become the name of the chat', () => {
+    // The automatic question from the exercise sheet used to become the title:
+    // "Hola Don Jack, este es un resumen del ejercicio…" is not a title.
+    const title = deriveThreadTitle([
+      { role: 'user', text: 'Hola Don Jack, este es un resumen del ejercicio press de banca.' },
+    ])
+    expect(title).not.toContain('Hola')
+    expect(title).not.toContain('Don Jack')
+    expect(title.length).toBeLessThanOrEqual(MAX_THREAD_TITLE_CHARS)
+  })
+
+  it('keeps only the first sentence of the question', () => {
+    const title = deriveThreadTitle([
+      { role: 'user', text: 'Press de banca. ¿Cómo la hago?Cuéntame también de sentadillas.' },
+    ])
+    expect(title).toBe('Press de banca.')
+  })
+
+  it('uses an explicit title when the conversation has one', () => {
+    const storage = memoryStorage()
+    upsertCoachThread(
+      'conversation-1',
+      question('Hola Ana, este es un resumen del ejercicio press de banca.'),
+      { storage, now: 1000, title: 'Press banca con barra' }
+    )
+    const thread = readCoachMemory({ storage, now: 1001 }).threads[0]
+    expect(thread.title).toBe('Press banca con barra')
+  })
+
   it('rebuilds live exercise cards from the catalogue and skips unknown ids', () => {
     const ex = EXDB.find(item => item.id === '0001')
     const storage = memoryStorage()
