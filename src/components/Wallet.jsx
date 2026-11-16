@@ -22,7 +22,7 @@ import { MOBILE } from '../lib/mobile.js'
 import { t } from '../lib/i18n.js'
 import { fmtNum, fmtDate } from '../lib/format.js'
 import {
-  fetchMovements, fetchTariffs, fetchLimits, clampAmount,
+  fetchMovements, fetchTariffs, fetchLimits, fetchQuote, clampAmount, formatMoney,
   createOrder, goToPayment, openPaymentTab, saveTopupRecord, clearTopupRecord,
   checkReturnedTopUp, checkTopupOrder,
 } from '../lib/platform/wallet.js'
@@ -33,6 +33,11 @@ const gap = { display: 'grid', gap: 10 }
 // Default pack when the platform gives no limits of its own (server still re-clamps).
 const PRESETS = [1000, 5000, 10000]
 const DEFAULT_AMOUNT = 5000
+// A USD option has a fixed server-provided price; fall back to its label only
+// when the numeric price is absent.
+const variantPrice = variant => variant.priceUsd != null
+  ? formatMoney(variant.priceUsd, 'USD')
+  : variant.label || '—'
 // How often the wallet asks the platform how the payment went while the person pays.
 const TOPUP_POLL_MS = 6000
 // Statuses that end the wait: anything else still means "not decided yet".
@@ -165,6 +170,9 @@ function WalletPanel({ close }) {
   const [tariffs, setTariffs] = useState(null)
   const [limits, setLimits] = useState(null)
   const [limitsErr, setLimitsErr] = useState(null)
+  const [quote, setQuote] = useState(null)
+  const [currency, setCurrency] = useState('CLP')
+  const [variantId, setVariantId] = useState(null)
   const [amount, setAmount] = useState(DEFAULT_AMOUNT)
   const [busy, setBusy] = useState(false)
   const [topupErr, setTopupErr] = useState(null)
@@ -188,6 +196,18 @@ function WalletPanel({ close }) {
     fetchLimits()
       .then(r => { if (alive) setLimits(r) })
       .catch(e => { if (alive) setLimitsErr(e) })
+    // The quote enriches the recharge when the platform offers it. A missing or
+    // failed quote leaves the existing CLP-only flow untouched and visible.
+    fetchQuote().then(q => {
+      if (!alive || !q) return
+      const available = q.currencies.filter(c => c.available)
+      const preferred = available.find(c => c.currency === q.defaultCurrency) || available[0] || null
+      setQuote(q)
+      setCurrency(preferred ? preferred.currency : '')
+      setVariantId(preferred && preferred.currency === 'USD' && preferred.variants[0]
+        ? preferred.variants[0].variantId
+        : null)
+    })
     // A recharge just came back from the payment site? Say how it ended, once, kindly.
     checkReturnedTopUp()
       .then(r => { if (alive && r) useUI.getState().openSheet(c2 => <TopUpStatusSheet result={r} close={c2} />) })
@@ -199,17 +219,40 @@ function WalletPanel({ close }) {
     .then(r => { setMovs(prev => (prev ? { items: prev.items.concat(r.items), hasMore: r.hasMore } : r)); setPage(p => p + 1) })
     .catch(() => setMovErr(true))
 
+  const selectedOption = quote ? quote.currencies.find(c => c.currency === currency) : null
+  const selectedVariant = selectedOption
+    ? selectedOption.variants.find(v => v.variantId === variantId) || null
+    : null
+
+  const chooseCurrency = option => {
+    if (!option || !option.available) return
+    setTopupErr(null)
+    setCurrency(option.currency)
+    setVariantId(option.currency === 'USD' && option.variants[0] ? option.variants[0].variantId : null)
+  }
+
   const startTopup = async () => {
     if (busy) return
-    const clamped = clampAmount(amount, limits)
-    if (!clamped) { setTopupErr(t('Choose an amount first — pick a pack or type one.')); return }
+    let orderAmount = null
+    let orderOptions = { currency: 'CLP' }
+    if (currency === 'USD') {
+      if (!selectedVariant) { setTopupErr(t('Choose an option first.')); return }
+      orderOptions = { currency: 'USD', variantId: selectedVariant.variantId }
+    } else if (currency === 'CLP') {
+      const clamped = clampAmount(amount, limits)
+      if (!clamped) { setTopupErr(t('Choose an amount first — pick a pack or type one.')); return }
+      orderAmount = clamped
+    } else {
+      setTopupErr(t('No recharge options are available right now.'))
+      return
+    }
     // The payment tab opens NOW, inside the click: a window opened after the order
     // call loses the user gesture and pop-up blockers refuse it — which would mean
     // replacing the app with the gateway, the very thing this flow avoids.
     const tab = openPaymentTab()
     setBusy(true); setTopupErr(null)
     try {
-      const { order } = await createOrder(clamped)
+      const { order } = await createOrder(orderAmount, orderOptions)
       const url = order && (order.redirect_url || order.redirectUrl)
       if (!url) {
         setTopupErr(t("Couldn't start the payment — try again in a moment."))
@@ -261,27 +304,80 @@ function WalletPanel({ close }) {
       <p className="muted small" style={{ textAlign: 'center' }}>{t("Adding credits isn't available right now — please try again later.")}</p>
     ) : <>
       <h4 className="sec">{t('Add credits')}</h4>
-      <div className="chips" style={{ marginBottom: 10 }}>
-        {PRESETS.map(p => {
-          const v = clampAmount(p, limits) || p
-          return <button key={p} className={'chip' + (amount === v ? ' on' : '')} onClick={() => setAmount(v)}>
-            {fmtNum(v)} CLP
-          </button>
-        })}
-      </div>
-      <div className="row between" style={{ padding: '8px 2px', gap: 10 }}>
-        <span className="muted small">{t('Other amount (CLP)')}</span>
-        <NumberField value={amount} decimal={false} style={{ width: 110, textAlign: 'right' }}
-          onChange={v => setAmount(v)} onBlur={() => setAmount(clampAmount(amount, limits))} />
-      </div>
-      {limits && <div className="dim small" style={{ margin: '0 2px 10px' }}>
-        {limits.min != null || limits.max != null
-          ? t('Recharges run from {0} to {1} CLP.', limits.min != null ? fmtNum(limits.min) : '—', limits.max != null ? fmtNum(limits.max) : '—')
-          : null}
+      {quote && <div style={{ margin: '0 2px 12px' }}>
+        {quote.detectedCountry && <div className="muted small" style={{ marginBottom: 8 }}>
+          {t('Detected country: {0}', quote.detectedCountry)}
+        </div>}
+        <div className="row between" style={{ gap: 10 }}>
+          <span className="muted small">{t('Payment currency')}</span>
+          <div className="chips">
+            {quote.currencies.map(option => (
+              <button
+                key={option.currency}
+                className={'chip' + (currency === option.currency ? ' on' : '')}
+                disabled={!option.available}
+                aria-pressed={currency === option.currency}
+                onClick={() => chooseCurrency(option)}
+              >
+                {option.currency}
+              </button>
+            ))}
+          </div>
+        </div>
+        {quote.currencies.filter(option => !option.available).map(option => (
+          <div key={option.currency} className="dim small" style={{ marginTop: 8, lineHeight: 1.5 }}>
+            <span style={{ fontWeight: 600 }}>{option.currency}:</span>{' '}
+            {option.reason || t('Not available right now.')}
+          </div>
+        ))}
       </div>}
-      <Button variant="primary" disabled={busy} onClick={startTopup}>
-        {busy ? t('Opening the payment site…') : t('Add {0} CLP in credits', fmtNum(amount))}
-      </Button>
+      {currency === 'CLP' ? <>
+        <div className="chips" style={{ marginBottom: 10 }}>
+          {PRESETS.map(p => {
+            const v = clampAmount(p, limits) || p
+            return <button key={p} className={'chip' + (amount === v ? ' on' : '')} onClick={() => setAmount(v)}>
+              {fmtNum(v)} CLP
+            </button>
+          })}
+        </div>
+        <div className="row between" style={{ padding: '8px 2px', gap: 10 }}>
+          <span className="muted small">{t('Other amount (CLP)')}</span>
+          <NumberField value={amount} decimal={false} style={{ width: 110, textAlign: 'right' }}
+            onChange={v => setAmount(v)} onBlur={() => setAmount(clampAmount(amount, limits))} />
+        </div>
+        {limits && <div className="dim small" style={{ margin: '0 2px 10px' }}>
+          {limits.min != null || limits.max != null
+            ? t('Recharges run from {0} to {1} CLP.', limits.min != null ? fmtNum(limits.min) : '—', limits.max != null ? fmtNum(limits.max) : '—')
+            : null}
+        </div>}
+        <Button variant="primary" disabled={busy} onClick={startTopup}>
+          {busy ? t('Opening the payment site…') : t('Add {0} CLP in credits', fmtNum(amount))}
+        </Button>
+      </> : currency === 'USD' ? <>
+        <div style={{ display: 'grid', gap: 8, margin: '0 2px 10px' }}>
+          {selectedOption && selectedOption.variants.length ? selectedOption.variants.map(variant => {
+            const price = variantPrice(variant)
+            return <Button
+              key={variant.variantId}
+              variant={selectedVariant && selectedVariant.variantId === variant.variantId ? 'primary' : 'plain'}
+              onClick={() => setVariantId(variant.variantId)}
+              style={{ width: '100%' }}
+            >
+              <span className="row between" style={{ width: '100%', gap: 12 }}>
+                <span>{price}</span>
+                <span>{variant.credits != null ? t('{0} credits', variant.credits) : ''}</span>
+              </span>
+            </Button>
+          }) : <div className="dim small">{t('No recharge options are available right now.')}</div>}
+        </div>
+        <Button variant="primary" disabled={busy || !selectedVariant} onClick={startTopup}>
+          {busy
+            ? t('Opening the payment site…')
+            : selectedVariant
+              ? t('Add {0} in credits', variantPrice(selectedVariant))
+              : t('Choose an option first.')}
+        </Button>
+      </> : <div className="muted small">{t('No recharge options are available right now.')}</div>}
       {topupErr && <div className="dim small" style={{ marginTop: 8 }}>{topupErr}</div>}
       <div className="dim small" style={{ marginTop: 8, lineHeight: 1.5 }}>
         {t('The payment page opens in another tab — this app stays open and checks your recharge for you.')}
