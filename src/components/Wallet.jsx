@@ -31,7 +31,9 @@ import { Button, NumberField } from './ui.jsx'
 
 const gap = { display: 'grid', gap: 10 }
 // Default pack when the platform gives no limits of its own (server still re-clamps).
-const PRESETS = [1000, 5000, 10000]
+// Temporary: the 100 CLP pack exists only to exercise a real payment end to
+// end. Remove it once the real-price test is done.
+const PRESETS = [100, 1000, 5000, 10000]
 const DEFAULT_AMOUNT = 5000
 // A USD option has a fixed server-provided price; fall back to its label only
 // when the numeric price is absent.
