@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { readLanding, consumeMagicLink, clearLandingUrl } from './landing.js'
+import { readLanding, consumeMagicLink, confirmReverification, clearLandingUrl } from './landing.js'
 import { getAccessToken, clearAccessToken } from './http.js'
 
 const BASE = 'https://api.djlabs.cl'
@@ -45,6 +45,15 @@ describe('readLanding', () => {
     expect(readLanding(loc('/auth/verify', ''))).toBe(null)
     expect(readLanding(loc('/auth/verify', '?heart=metalgym88'))).toBe(null)
     expect(readLanding(loc('/auth/verify', '?token='))).toBe(null)
+  })
+
+  it('recognises the re-verification notice the platform mails', () => {
+    expect(readLanding(loc('/auth/verify', '?token=abc123&heart=metalgym88&kind=reverify'))).toEqual({
+      kind: 'reverify', token: 'abc123', heart: 'metalgym88'
+    })
+    // The marker is case-insensitive; anything else is the sign-in token.
+    expect(readLanding(loc('/auth/verify', '?token=abc123&kind=ReVerify')).kind).toBe('reverify')
+    expect(readLanding(loc('/auth/verify', '?token=abc123&kind=magic')).kind).toBe('magic-link')
   })
 
   it('is null on any other path — the token is only read on the verify path', () => {
@@ -112,6 +121,37 @@ describe('consumeMagicLink', () => {
     const err = await consumeMagicLink('abc123', { request: async () => { throw boom } }).catch(e => e)
     expect(err).toBe(boom)
     expect(getAccessToken()).toBe(null)
+  })
+})
+
+describe('confirmReverification', () => {
+  it('redeems the mailed token through the platform contract and keeps the session', async () => {
+    const m = mockFetch([
+      res(200, { success: true, data: { email: 'ana@example.com', message: 'Correo confirmado.' } })
+    ])
+    vi.stubGlobal('fetch', m.impl)
+    const out = await confirmReverification('re-token')
+    expect(m.seen[0].url).toBe(BASE + '/auth/reverify')
+    expect(m.seen[0].opts.method).toBe('POST')
+    expect(JSON.parse(m.seen[0].opts.body)).toEqual({ token: 're-token' })
+    expect(out.email).toBe('ana@example.com')
+    // The gate opens; it does not create a new session.
+    expect(getAccessToken()).toBe(null)
+  })
+
+  it('takes an injected request, so the check never depends on the network', async () => {
+    const request = vi.fn(async () => ({ success: true, data: { message: 'Correo confirmado.' } }))
+    const out = await confirmReverification('re-token', { request })
+    expect(request).toHaveBeenCalledTimes(1)
+    expect(request.mock.calls[0][0]).toBe('/auth/reverify')
+    expect(request.mock.calls[0][1].method).toBe('POST')
+    expect(out.success).toBe(true)
+  })
+
+  it('never calls the platform without a token', async () => {
+    const request = vi.fn(async () => ({ success: true }))
+    await expect(confirmReverification('', { request })).rejects.toThrow(/token missing/)
+    expect(request).not.toHaveBeenCalled()
   })
 })
 

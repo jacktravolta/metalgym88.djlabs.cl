@@ -71,6 +71,13 @@ export function requestMagicLink(email, opts = {}) {
   return platformCall('/auth/magic-link', { method: 'POST', body: JSON.stringify(body) })
 }
 
+// The platform pauses a wallet that crosses the welcome-bonus threshold and
+// mails a verification notice. Asking for a fresh one has its own endpoint:
+// the magic link would NOT open the gate, so the account would stay paused.
+export function requestReverification() {
+  return platformCall('/auth/reverify/resend', { method: 'POST', body: JSON.stringify(withHeart({})) })
+}
+
 // Registration routes the platform's welcome credit to the metalgym88 wallet via heart.
 export function register(email, name, opts = {}) {
   const body = withHeart({ email, name })

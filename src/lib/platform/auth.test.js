@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { login, register, requestMagicLink, me, logout, EMAIL_REVERIFY_REQUIRED } from './auth.js'
+import { login, register, requestMagicLink, requestReverification, me, logout, EMAIL_REVERIFY_REQUIRED } from './auth.js'
 import { HEART, withHeart } from './config.js'
 import { phttp, getAccessToken, setAccessToken, clearAccessToken } from './http.js'
 
@@ -112,6 +112,18 @@ describe('register / magic link', () => {
     vi.stubGlobal('fetch', m.impl)
     await requestMagicLink('a@b.c')
     expect(JSON.parse(m.seen[0].opts.body).terms_accepted).toBeUndefined()
+  })
+})
+
+describe('requestReverification', () => {
+  it('asks the platform for a fresh re-verification notice, with the heart', async () => {
+    const m = mockFetch([res(200, { success: true, data: { sent: true, message: 'Te enviamos un enlace nuevo.' } })])
+    vi.stubGlobal('fetch', m.impl)
+    const out = await requestReverification()
+    expect(m.seen[0].url).toBe(BASE + '/auth/reverify/resend')
+    expect(m.seen[0].opts.method).toBe('POST')
+    expect(JSON.parse(m.seen[0].opts.body)).toEqual({ heart: 'metalgym88' })
+    expect(out.sent).toBe(true)
   })
 })
 

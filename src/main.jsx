@@ -29,7 +29,7 @@ const showLanding = !landing && onRoot
 // chose another language switches as soon as their stored preference is read.
 setLang('es').finally(() => {
   createRoot(document.getElementById('root')).render(
-    <StrictMode>{landing ? <MagicLinkLanding token={landing.token} /> : showLanding ? <Landing /> : <App />}</StrictMode>
+    <StrictMode>{landing ? <MagicLinkLanding token={landing.token} kind={landing.kind} /> : showLanding ? <Landing /> : <App />}</StrictMode>
   )
 })
 

@@ -61,7 +61,13 @@ export function readLanding(location) {
   // The heart travels with the link; without one the link belongs to this
   // product.
   const heart = queryParam(search, 'heart') || HEART
-  return { kind: 'magic-link', token, heart }
+  // The platform marks a re-verification notice with kind=reverify: that token
+  // opens the welcome-bonus gate, it does not sign anybody in. Without the
+  // marker the link is the sign-in one.
+  const kind = String(queryParam(search, 'kind') || '').toLowerCase() === 'reverify'
+    ? 'reverify'
+    : 'magic-link'
+  return { kind, token, heart }
 }
 
 // Redeems the token: the platform verifies it, leaves the session cookies
@@ -79,6 +85,20 @@ export async function consumeMagicLink(token, deps = {}) {
     { headers: { Accept: 'application/json' } }
   )
   return adopt(data)
+}
+
+// Confirms the email again for an account the platform paused (the welcome-
+// bonus threshold: the account must prove the address is still its own before
+// it can spend more). The token comes from the notice the platform mailed.
+// This only opens the gate — the session stays exactly as it is.
+export async function confirmReverification(token, deps = {}) {
+  if (!token) throw new Error('re-verification token missing')
+  const request = deps.request || ((path, opts) => platformCall(path, opts))
+  const data = await request('/auth/reverify', {
+    method: 'POST',
+    body: JSON.stringify({ token }),
+  })
+  return data
 }
 
 // Scrubs the token out of the address bar: the history entry is REPLACED, so

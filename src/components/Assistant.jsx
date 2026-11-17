@@ -20,7 +20,7 @@ import { DEMO } from '../lib/demo.js'
 import { MOBILE } from '../lib/mobile.js'
 import { t } from '../lib/i18n.js'
 import { askAssistant, fetchAssistantTariff, isOffline } from '../lib/platform/assistant.js'
-import { requestMagicLink } from '../lib/platform/auth.js'
+import { requestReverification } from '../lib/platform/auth.js'
 import { buildCoachPayload } from '../lib/coach-context.js'
 import { createCoachRunGuard } from '../lib/coach-run.js'
 import { withCoachIdentity, withPersonIntro } from '../lib/coach-request.js'
@@ -263,8 +263,10 @@ function ReverifyBlock() {
     if (busy || !email) return
     setBusy(true); setErr(null)
     // The account already accepted the Terms at registration: re-sending the
-    // link repeats that consent, it does not create a new one.
-    try { await requestMagicLink(email, { terms: true }); setSent(true) }
+    // notice repeats that consent, it does not create a new one. The platform
+    // has its own endpoint for this notice: the magic link would NOT open the
+    // pause.
+    try { await requestReverification(); setSent(true) }
     catch (e) { setErr(e.message || t('Could not send the link')) }
     setBusy(false)
   }

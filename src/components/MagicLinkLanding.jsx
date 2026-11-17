@@ -17,7 +17,7 @@ import App from '../App.jsx'
 import Icon from './Icon.jsx'
 import { Button } from './ui.jsx'
 import { t } from '../lib/i18n.js'
-import { consumeMagicLink, clearLandingUrl } from '../lib/platform/landing.js'
+import { consumeMagicLink, confirmReverification, clearLandingUrl } from '../lib/platform/landing.js'
 import { goToIndex } from '../lib/nav.js'
 
 // The app's own surfaces: the black backdrop and the green accent, no new CSS.
@@ -29,7 +29,7 @@ const overlay = {
 }
 const actions = { width: '100%', maxWidth: 320, display: 'grid', gap: 10 }
 
-export default function MagicLinkLanding({ token }) {
+export default function MagicLinkLanding({ token, kind = 'magic-link' }) {
   const [phase, setPhase] = useState('checking')   // checking | error | ready
   const [attempt, setAttempt] = useState(0)
   const [appMounted, setAppMounted] = useState(false)
@@ -45,7 +45,11 @@ export default function MagicLinkLanding({ token }) {
     // The token leaves the address bar BEFORE the request: it must not stay in
     // the history nor travel as a Referer. The retry keeps it in memory.
     clearLandingUrl()
-    consumeMagicLink(token)
+    // Two kinds of token reach this screen: the sign-in one (it creates the
+    // session) and the re-verification one (the platform paused the account
+    // and mailed a notice; this opens that gate and the session stays).
+    const work = kind === 'reverify' ? confirmReverification(token) : consumeMagicLink(token)
+    work
       .then(() => {
         // The session is live (cookies + access token adopted): the app boots
         // now and finds it. Remounting on a retry re-runs its boot.
@@ -59,7 +63,7 @@ export default function MagicLinkLanding({ token }) {
         setAppMounted(true)
         setPhase('error')
       })
-  }, [attempt, token])
+  }, [attempt, token, kind])
 
   const retry = () => {
     setPhase('checking')
