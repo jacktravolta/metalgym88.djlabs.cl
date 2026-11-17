@@ -111,3 +111,17 @@ E2E_ALLOW_SPEND=1 node scripts/e2e/run.js --only=S8
   from the product yet), and the wallet's first pass answers the price-list
   calls with 204 (the harness now prefers the answer that carries a body and
   falls back to the final wallet pass).
+- 2026-11-17 — The token gap was a real defect in the platform, not in the
+  harness: the brain reports `prompt_tokens`/`completion_tokens` and the
+  platform read `input_tokens`/`output_tokens`, so **every answer was recorded
+  as zero tokens** — and the cost record with it (the pricing calculator reads
+  the same numbers). Fixed in the API (`HttpBrainAdapter::normalizeUsage`
+  reads both spellings and derives the total; `FailoverBrainAdapter` carries
+  the total too; the chat and the gym answers now publish `usage_tokens` and
+  the `usage` breakdown, as the product's contract always said). Verified
+  live: `usage_tokens: 343` (257 in / 86 out) on a real question.
+- 2026-11-17 — The live figures are the platform's **billing basis**
+  (`billing.estimate_tokens` counts our own bytes / 4), because some
+  gateways pad the prompt with their own routing instructions and bill those
+  tokens to the caller. That is the number the prices are built on, so it is
+  the number the report shows.
