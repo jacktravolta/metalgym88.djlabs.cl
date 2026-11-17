@@ -60,13 +60,28 @@ function normalizeVariant(raw) {
   if (!isObject(raw)) return null
   const variantId = stringOrNull(raw.variant_id) || stringOrNull(raw.variantId) || stringOrNull(raw.id)
   if (!variantId) return null
+  // The API owns the USD price as integer cents; older payloads may still send
+  // dollars. Both become the same integer here, so the UI never parses a label.
+  const cents = numberOrNull(raw.price_usd_cents) ?? numberOrNull(raw.priceUsdCents)
+  const dollars = numberOrNull(raw.price_usd) ?? numberOrNull(raw.priceUsd) ?? numberOrNull(raw.price)
   return {
     variantId,
-    priceUsd: numberOrNull(raw.price_usd) ?? numberOrNull(raw.priceUsd) ?? numberOrNull(raw.price),
+    priceUsdCents: cents != null ? Math.round(cents) : dollars != null ? Math.round(dollars * 100) : null,
+    priceUsd: dollars ?? (cents != null ? cents / 100 : null),
     credits: numberOrNull(raw.credits),
     amountClp: numberOrNull(raw.amount_clp) ?? numberOrNull(raw.amountClp),
     label: stringOrNull(raw.label),
   }
+}
+
+// The quote may carry the public PayPal client id for the card-fields SDK.
+// Without it the card form stays off and the wallet keeps the gateway redirect.
+export function normalizePaypalInfo(raw) {
+  if (!isObject(raw)) return null
+  const clientId = stringOrNull(raw.client_id) || stringOrNull(raw.clientId)
+  if (!clientId) return null
+  const environment = stringOrNull(raw.environment)?.toLowerCase()
+  return { clientId, environment: environment === 'live' ? 'live' : 'sandbox' }
 }
 
 function normalizeCurrency(raw) {
@@ -102,6 +117,7 @@ export function normalizeQuote(data) {
     detectedCountry: stringOrNull(source.detected_country)?.toUpperCase() || null,
     detectedCurrency,
     defaultCurrency: currencyCode(source.default_currency) || detectedCurrency,
+    paypal: normalizePaypalInfo(source.paypal),
     currencies,
   }
 }
@@ -125,6 +141,43 @@ export function formatMoney(amount, currency = 'CLP') {
     return 'US$' + safe.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   }
   return fmtNum(Math.round(safe))
+}
+
+// Whole-dollar packs read as "US$5", not "US$5.00"; a price with real cents keeps
+// them ("US$5.50"). Input is the integer cents the API owns.
+export function formatUsdCents(cents) {
+  const value = Number(cents)
+  if (!Number.isFinite(value)) return null
+  const whole = value % 100 === 0
+  return 'US$' + (value / 100).toLocaleString('en-US', {
+    minimumFractionDigits: whole ? 0 : 2,
+    maximumFractionDigits: 2,
+  })
+}
+
+// One display price for a server-owned USD variant: cents first, older dollars
+// payloads second, the server label last. The UI never parses the label.
+export function usdPriceLabel(variant) {
+  if (!isObject(variant)) return null
+  if (numberOrNull(variant.priceUsdCents) != null) return formatUsdCents(variant.priceUsdCents)
+  if (numberOrNull(variant.priceUsd) != null) return formatUsdCents(Math.round(variant.priceUsd * 100))
+  return variant.label || null
+}
+
+// The USD pack row: the same list the CLP chips use, built from the quote so the
+// client only renders what the server offers (price in dollars, credits below).
+export function usdPacks(currencyRow) {
+  const variants = isObject(currencyRow) && Array.isArray(currencyRow.variants) ? currencyRow.variants : []
+  return variants.map(variant => ({
+    variantId: variant.variantId,
+    price: usdPriceLabel(variant) || '—',
+    credits: variant.credits,
+  }))
+}
+
+// The custom amount field is CLP-only: USD prices belong to the server variants.
+export function showsCustomAmount(currency) {
+  return currencyCode(currency) === 'CLP'
 }
 
 /* ============================ movements ============================ */
@@ -176,6 +229,45 @@ export function normalizeMovements(data) {
 export async function fetchMovements(page = 1) {
   const data = await phttp(withHeartQuery('/credits/movements?page=' + encodeURIComponent(page)), {})
   return normalizeMovements(data)
+}
+
+// server movement rows carry full ISO timestamps; the day is the calendar part.
+function movementDay(date) {
+  if (!date) return null
+  const s = String(date).slice(0, 10)
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(new Date(s + 'T12:00:00')) ? s : null
+}
+
+// Groups the loaded movements by calendar day, preserving the newest-first order
+// the API returned. Each group carries its signed net and one entry per movement
+// type, so the header can say "net +8.000 · purchase +10.000 · use −2.000".
+// Undated rows stay visible in a single trailing group instead of disappearing.
+export function groupMovements(items) {
+  const groups = []
+  const byDay = new Map()
+  for (const movement of Array.isArray(items) ? items : []) {
+    if (!isObject(movement)) continue
+    const day = movementDay(movement.date)
+    const key = day || ''
+    let group = byDay.get(key)
+    if (!group) {
+      group = { day, items: [], net: 0, types: [] }
+      byDay.set(key, group)
+      groups.push(group)
+    }
+    group.items.push(movement)
+    const amount = typeof movement.amount === 'number' ? Math.abs(movement.amount) : 0
+    const signed = movementDirection(movement.type, movement.amount) * amount
+    group.net += signed
+    const type = movement.type || ''
+    let typeRow = group.types.find(row => row.type === type)
+    if (!typeRow) {
+      typeRow = { type, label: movement.label, total: 0 }
+      group.types.push(typeRow)
+    }
+    typeRow.total += signed
+  }
+  return groups
 }
 
 /* ============================ tariffs ============================ */
@@ -249,47 +341,144 @@ export async function createOrder(amountClp, { currency = 'CLP', variantId, docu
 
 /* ============================ payment gateway ============================ */
 
-// A recharge must never take the person out of the app: the gateway opens in a NEW
-// tab and this app stays exactly where it is, watching the order.
-//
-// Two browser rules shape the code:
-//   · a window opened after an await loses the user-gesture context, and pop-up
-//     blockers then refuse it — so the tab is opened FIRST (openPaymentTab, called
-//     from the click handler) and pointed at the gateway once the URL is known;
-//   · 'noopener' as a window feature makes window.open return null, so the opener
-//     is cut by hand instead.
-//
-// If the browser refuses the window, the payment continues in the same tab — the old
-// behaviour — and the breadcrumb still tells us what happened when they come back.
-export function openPaymentTab() {
-  if (typeof window === 'undefined' || typeof window.open !== 'function') return null
-  let w = null
-  try { w = window.open('', '_blank') } catch { w = null }
-  if (!w) return null
-  try { w.opener = null } catch { /* a browser that refuses the write is still fine */ }
-  return w
+// A recharge ALWAYS continues in this same window. The gateway replaces the app
+// for the time the person pays; coming back is detected by the boot breadcrumb
+// (TOPUP_RECORD_KEY + checkReturnedTopUp), which speaks once the app is open again.
+// No new tab, no popup, no window.open — the owner requires one window end to end.
+// Returns false when the browser gives us no location to navigate (the caller then
+// tells the truth instead of staying silent).
+export function goToPayment(url) {
+  if (typeof window === 'undefined' || !url) return false
+  const location = window.location
+  if (!location) return false
+  if (typeof location.assign === 'function') {
+    location.assign(url)
+    return true
+  }
+  location.href = url
+  return true
 }
 
-// Sends the payment tab to the gateway. `tab` is the window openPaymentTab() already
-// opened (optional — when it is missing, one is opened here). Returns 'tab' when the
-// gateway got its own tab and 'same-tab' when this app had to navigate instead.
-export function goToPayment(url, tab) {
-  if (typeof window === 'undefined' || !url) return 'same-tab'
-  let w = tab || null
-  if (!w) {
-    try { w = window.open('', '_blank') } catch { w = null }
-    if (w) { try { w.opener = null } catch { /* ignore */ } }
+/* ============================ PayPal card fields ============================ */
+
+// The hosted PayPal account page is not acceptable for the USD rail: the buyer
+// types the card inside this sheet. PayPal's JS SDK renders the fields and hands
+// back a token; only that token reaches our API — never the card number, expiry
+// or CVV (they live inside PayPal's iframes, not in our state).
+
+const PAYPAL_SDK = {
+  sandbox: 'https://www.sandbox.paypal.com/sdk/js',
+  live: 'https://www.paypal.com/sdk/js',
+}
+const sdkLoads = new Map()
+
+// The exact script URL, or null when there is no usable client id.
+export function paypalSdkUrl(paypal) {
+  const info = isObject(paypal) ? paypal : {}
+  const id = stringOrNull(info.clientId)
+  if (!id) return null
+  const host = PAYPAL_SDK[info.environment === 'live' ? 'live' : 'sandbox']
+  return host + '?client-id=' + encodeURIComponent(id) + '&components=card-fields&currency=USD'
+}
+
+// Loads the SDK lazily, once per URL, straight from PayPal (no npm dependency).
+// Every failure resolves null: the wallet then says the card form is unavailable
+// and keeps the same-window redirect as the honest fallback.
+export function loadPaypalSdk(paypal) {
+  const url = paypalSdkUrl(paypal)
+  if (!url || typeof document === 'undefined') return Promise.resolve(null)
+  if (typeof window !== 'undefined' && window.paypal && typeof window.paypal.CardFields === 'function') {
+    return Promise.resolve(window.paypal)
   }
-  if (w) {
+  if (sdkLoads.has(url)) return sdkLoads.get(url)
+  const load = new Promise(resolve => {
+    let settled = false
+    const finish = paypal => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve(paypal)
+    }
+    // A script that never answers must not leave the card button disabled forever:
+    // after this window the wallet falls back to the same-window redirect.
+    const timer = setTimeout(() => finish(null), 12000)
+    const script = document.createElement('script')
+    script.src = url
+    script.async = true
+    script.onload = () => finish(
+      window && window.paypal && typeof window.paypal.CardFields === 'function' ? window.paypal : null
+    )
+    script.onerror = () => finish(null)
+    document.head.appendChild(script)
+  }).then(paypal => {
+    // A failed load must not poison the cache: a later attempt may work.
+    if (!paypal) sdkLoads.delete(url)
+    return paypal
+  })
+  sdkLoads.set(url, load)
+  return load
+}
+
+// The SDK may hand the token as a plain string or inside a paymentSource/card
+// object. Anything else (including a raw card number) is refused: no token, no API
+// call. Never log the value; it is single-use and card-linked.
+export function extractCardToken(data) {
+  if (typeof data === 'string') return stringOrNull(data)
+  if (!isObject(data)) return null
+  const source = isObject(data.paymentSource) ? data.paymentSource : null
+  const card = isObject(data.card) ? data.card : source && isObject(source.card) ? source.card : null
+  const candidates = [
+    card && card.token,
+    card && card.id,
+    source && source.token,
+    typeof data.paymentSource === 'string' ? data.paymentSource : null,
+    data.token,
+    data.card_token,
+    data.cardToken,
+  ]
+  for (const candidate of candidates) {
+    const token = stringOrNull(candidate)
+    if (token) return token
+  }
+  return null
+}
+
+// The API answers a captured card order with the order, its provider id, the
+// final status and the credits it delivered. All optional-read, so a partial
+// answer still reaches the UI honestly.
+export function normalizeCardOrder(data) {
+  const source = isObject(data) && isObject(data.order) ? data.order : data
+  if (!isObject(source)) return null
+  return {
+    orderId: stringOrNull(source.order_id) || stringOrNull(source.orderId) || stringOrNull(source.id),
+    providerOrderId: stringOrNull(source.provider_order_id) || stringOrNull(source.providerOrderId),
+    status: String(source.status || '').toUpperCase(),
+    credits: numberOrNull(source.credits),
+    redirectUrl: stringOrNull(source.redirect_url) || stringOrNull(source.redirectUrl),
+  }
+}
+
+// Sends ONLY the variant id and the card token. One Idempotency-Key per submit
+// attempt: a network retry reuses it, so the platform replays instead of capturing
+// the card twice. A status means the server answered — never retry that.
+export async function createCardOrder(variantId, cardToken, { genKey } = {}) {
+  const key = genKey ? genKey() : newKey()
+  const opts = {
+    method: 'POST',
+    headers: { 'Idempotency-Key': key },
+    body: JSON.stringify(withHeart({ variant_id: variantId, card_token: cardToken })),
+  }
+  let lastErr = null
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      w.location.href = url
-      return 'tab'
-    } catch {
-      try { w.close() } catch { /* the window cannot be closed either — nothing to do */ }
+      const order = normalizeCardOrder(await phttp('/payments/orders/card', opts))
+      return { order, idempotencyKey: key }
+    } catch (e) {
+      if (e && typeof e.status === 'number') throw e
+      lastErr = e
     }
   }
-  window.location.href = url
-  return 'same-tab'
+  throw lastErr
 }
 
 /* ============================ return from the gateway ============================ */
@@ -372,20 +561,4 @@ async function checkReturnedTopUpOnce() {
   clearTopupRecord()
   const status = orderStatus(v)
   return { orderId: rec.order_id, voucher: v, status, kind: statusKind(status) }
-}
-
-// Asks the platform how ONE order ended, WITHOUT touching the breadcrumb: the wallet
-// keeps asking while the person pays, so the record stays available for the boot check
-// if they never come back to that sheet. A failed lookup is not an answer — it returns
-// null so the caller keeps waiting quietly instead of announcing a wrong result.
-export async function checkTopupOrder(orderId) {
-  if (!orderId) return null
-  let v
-  try {
-    v = await phttp(withHeartQuery('/payments/orders/' + encodeURIComponent(orderId) + '/voucher'), {})
-  } catch (e) {
-    return null
-  }
-  const status = orderStatus(v)
-  return { orderId, voucher: v, status, kind: statusKind(status) }
 }

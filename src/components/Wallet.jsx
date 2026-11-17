@@ -10,10 +10,11 @@
 // Boleta (document_type 46) is the only document type here; factura + fiscal fields come
 // in a later task (the seam is in wallet.js createOrder).
 //
-// The gateway opens in ANOTHER TAB: a recharge must never replace the app with the
-// payment page (and never take the person out of it). This app stays open, watches
-// the order (TopUpWaitSheet) and reports the result the moment it is decided.
-import { useCallback, useEffect, useRef, useState } from 'react'
+// The payment gateway ALWAYS continues in this same window: paying replaces the app
+// for a moment, and the boot check speaks the result when the person comes back.
+// The USD rail renders PayPal's card fields in place (no hosted account page), so a
+// card payment never leaves this sheet. CLP keeps the gateway redirect.
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import { me as platformMe } from '../lib/platform/auth.js'
@@ -22,9 +23,10 @@ import { MOBILE } from '../lib/mobile.js'
 import { t } from '../lib/i18n.js'
 import { fmtNum, fmtDate } from '../lib/format.js'
 import {
-  fetchMovements, fetchTariffs, fetchLimits, fetchQuote, clampAmount, formatMoney,
-  createOrder, goToPayment, openPaymentTab, saveTopupRecord, clearTopupRecord,
-  checkReturnedTopUp, checkTopupOrder,
+  fetchMovements, fetchTariffs, fetchLimits, fetchQuote, clampAmount,
+  usdPriceLabel, usdPacks, showsCustomAmount, groupMovements, statusKind,
+  createOrder, createCardOrder, extractCardToken, loadPaypalSdk, goToPayment,
+  saveTopupRecord, checkReturnedTopUp,
 } from '../lib/platform/wallet.js'
 import Icon from './Icon.jsx'
 import { Button, NumberField } from './ui.jsx'
@@ -35,24 +37,11 @@ const gap = { display: 'grid', gap: 10 }
 // end. Remove it once the real-price test is done.
 const PRESETS = [100, 1000, 5000, 10000]
 const DEFAULT_AMOUNT = 5000
-// A USD option has a fixed server-provided price; fall back to its label only
-// when the numeric price is absent.
-const variantPrice = variant => variant.priceUsd != null
-  ? formatMoney(variant.priceUsd, 'USD')
-  : variant.label || '—'
-// How often the wallet asks the platform how the payment went while the person pays.
-const TOPUP_POLL_MS = 6000
-// Statuses that end the wait: anything else still means "not decided yet".
-const FINAL_TOPUP_KINDS = ['approved', 'rejected', 'canceled', 'pending_review']
-
-// A blank tab we opened but never used must not stay in the person's tab bar.
-const closeTab = w => { try { if (w && typeof w.close === 'function') w.close() } catch { /* ignore */ } }
-
-// server movement rows carry full ISO timestamps; the app's fmtDate wants a YYYY-MM-DD.
-const dayOf = iso => {
-  if (!iso) return null
-  const s = String(iso).slice(0, 10)
-  return isNaN(new Date(s + 'T12:00:00')) ? null : s
+// PayPal renders its card fields inside our sheet. The iframe keeps its own light
+// input surface, so the text stays dark and readable on it in every app theme.
+const CARD_STYLE = {
+  input: { 'font-size': '16px', 'font-family': 'inherit', color: '#1c1c1e' },
+  '.invalid': { color: '#d70015' },
 }
 
 function TopUpStatusSheet({ result, close }) {
@@ -77,90 +66,37 @@ function TopUpStatusSheet({ result, close }) {
   </div>
 }
 
-// The payment now happens in ANOTHER tab, so this app stays open and watches the
-// order. This sheet says what is going on and offers the two ways forward: ask the
-// platform how the payment went, or open the payment page once more. The moment the
-// answer is final it hands over to the status sheet that already exists.
-function TopUpWaitSheet({ orderId, url, close }) {
-  const [checking, setChecking] = useState(false)
-  const settled = useRef(false)
-  const inflight = useRef(false)
-  const mounted = useRef(true)
+const signedNum = n => (n < 0 ? '−' : '+') + fmtNum(Math.abs(n))
 
-  useEffect(() => {
-    mounted.current = true
-    return () => { mounted.current = false }
-  }, [])
-
-  // A final answer ends the wait: the status sheet speaks, and the breadcrumb has
-  // done its job — the boot check must not announce the same recharge a second time.
-  const settle = useCallback(r => {
-    if (!r || settled.current || !FINAL_TOPUP_KINDS.includes(r.kind)) return false
-    settled.current = true
-    clearTopupRecord()
-    close()
-    useUI.getState().openSheet(c2 => <TopUpStatusSheet result={r} close={c2} />)
-    return true
-  }, [close])
-
-  // A pending answer changes nothing: the person keeps paying and we keep waiting.
-  const check = useCallback(async () => {
-    if (settled.current || inflight.current) return
-    inflight.current = true
-    if (mounted.current) setChecking(true)
-    try {
-      const r = await checkTopupOrder(orderId)
-      if (r && mounted.current) settle(r)
-    } finally {
-      inflight.current = false
-      if (mounted.current) setChecking(false)
-    }
-  }, [orderId, settle])
-
-  // While the sheet is open the wallet keeps asking (quietly), and asks once more as
-  // soon as the person comes back to this tab.
-  useEffect(() => {
-    if (!orderId) return
-    const int = setInterval(check, TOPUP_POLL_MS)
-    const onFocus = () => check()
-    const onVisible = () => { if (document.visibilityState === 'visible') check() }
-    window.addEventListener('focus', onFocus)
-    document.addEventListener('visibilitychange', onVisible)
-    return () => {
-      clearInterval(int)
-      window.removeEventListener('focus', onFocus)
-      document.removeEventListener('visibilitychange', onVisible)
-    }
-  }, [check, orderId])
-
-  return <div style={{ textAlign: 'center', padding: '6px 0' }}>
-    <div style={{ fontSize: 40, display: 'flex', justifyContent: 'center', color: 'var(--acc)' }}>
-      <Icon name="expand" />
-    </div>
-    <h3 style={{ margin: '8px 0 4px' }}>{t('We opened the payment page in another tab')}</h3>
-    <div className="muted small" style={{ marginBottom: 16, lineHeight: 1.5 }}>
-      {t('Finish the payment there — this app stays open and checks the result for you.')}
-    </div>
-    <Button variant="primary" disabled={checking} onClick={check}>{t('Check the payment')}</Button>
-    <div style={{ height: 8 }} />
-    <Button onClick={() => goToPayment(url)}>{t('Open the payment page again')}</Button>
-    <div style={{ height: 8 }} />
-    <Button variant="ghost" className="dim" onClick={close}>{t('Close')}</Button>
+function MovementRow({ m }) {
+  return <div className="row between" style={{ padding: '10px 2px', borderBottom: '1px solid var(--sep)' }}>
+    <span className="tt" style={{ fontSize: 15 }}>{t(m.label)}</span>
+    <span style={{ fontWeight: 600, color: m.dir < 0 ? 'var(--label)' : 'var(--acc)', fontVariantNumeric: 'tabular-nums' }}>
+      {signedNum(m.dir < 0 ? -(m.amount ?? 0) : (m.amount ?? 0))}
+    </span>
   </div>
 }
 
-function MovementRow({ m }) {
-  const day = dayOf(m.date)
-  const signed = m.dir < 0 ? '−' : '+'
-  const value = fmtNum(m.amount ?? 0)
-  return <div className="row between" style={{ padding: '10px 2px', borderBottom: '1px solid var(--sep)' }}>
-    <span>
-      <span className="tt" style={{ fontSize: 15 }}>{m.label}</span>
-      {day && <div className="ss dim">{fmtDate(day, true)}</div>}
-    </span>
-    <span style={{ fontWeight: 600, color: m.dir < 0 ? 'var(--label)' : 'var(--acc)', fontVariantNumeric: 'tabular-nums' }}>
-      {signed}{value}
-    </span>
+// One header per calendar day: the date, the day's net total and — when the day
+// mixes types — the signed total per type. The rows under it keep their own amount
+// and type label, so the list reads as days instead of one endless column.
+function MovementDay({ group }) {
+  const mixed = group.types.length > 1
+  return <div>
+    <div style={{ padding: '12px 2px 4px', borderBottom: '1px solid var(--sep)' }}>
+      <div className="row between" style={{ gap: 10 }}>
+        <span className="muted small" style={{ fontWeight: 600 }}>
+          {group.day ? fmtDate(group.day, true) : t('Undated')}
+        </span>
+        <span className="muted small" style={{ fontVariantNumeric: 'tabular-nums' }}>
+          {t('Net')} {signedNum(group.net)}
+        </span>
+      </div>
+      {mixed && <div className="dim small" style={{ marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
+        {group.types.map(row => `${t(row.label)} ${signedNum(row.total)}`).join(' · ')}
+      </div>}
+    </div>
+    {group.items.map((m, i) => <MovementRow key={i} m={m} />)}
   </div>
 }
 
@@ -178,6 +114,24 @@ function WalletPanel({ close }) {
   const [amount, setAmount] = useState(DEFAULT_AMOUNT)
   const [busy, setBusy] = useState(false)
   const [topupErr, setTopupErr] = useState(null)
+  // Card form: idle → loading → ready (fields rendered) or unavailable (honest fallback).
+  const [cardState, setCardState] = useState('idle')
+  const [cardBusy, setCardBusy] = useState(false)
+  const [cardErr, setCardErr] = useState(null)
+  const cardFields = useRef(null)
+  const cardCreateOrder = useRef(null)
+  const selectedVariantRef = useRef(null)
+  // PayPal renders into ids we own; useId keeps them unique across sheet reopens.
+  const cardUid = useId().replace(/:/g, '')
+
+  const refreshWallet = useCallback(() => {
+    platformMe()
+      .then(({ balance: b }) => { if (b != null) useStore.setState({ balance: b }) })
+      .catch(() => {})
+    fetchMovements(1)
+      .then(r => { setMovs(r); setPage(1); setMovErr(false) })
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     let alive = true
@@ -225,13 +179,78 @@ function WalletPanel({ close }) {
   const selectedVariant = selectedOption
     ? selectedOption.variants.find(v => v.variantId === variantId) || null
     : null
+  selectedVariantRef.current = selectedVariant
+
+  const paypalInfo = quote ? quote.paypal : null
+  const cardWanted = currency === 'USD' && !!paypalInfo
+  const cardReady = cardWanted && cardState === 'ready'
+
+  // Loads and mounts PayPal's card fields only while the USD rail is selected and
+  // the API exposed a public client id. Any failure leaves the card option off and
+  // the same-window gateway redirect on.
+  useEffect(() => {
+    if (!cardWanted) {
+      setCardState('idle')
+      return
+    }
+    let alive = true
+    setCardState('loading')
+    setCardErr(null)
+    cardFields.current = null
+    loadPaypalSdk(paypalInfo).then(paypal => {
+      if (!alive) return
+      if (!paypal) { setCardState('unavailable'); return }
+      let fields = null
+      try {
+        fields = paypal.CardFields({
+          style: CARD_STYLE,
+          inputEvents: {
+            onFocus: () => setCardErr(null),
+            onError: () => setCardErr(t('Check the card details and try again.')),
+          },
+          // The SDK hands over a token here; only the token leaves the card iframes.
+          createOrder: data => cardCreateOrder.current(data),
+          // The server answer already drives the UI inside createOrder.
+          onApprove: () => {},
+          onError: () => setCardErr(t("The card payment couldn't be completed — nothing was charged. Try another card or continue on the payment page.")),
+        })
+        fields.NameField().render('#pp-card-name-' + cardUid)
+        fields.NumberField().render('#pp-card-number-' + cardUid)
+        fields.ExpiryField().render('#pp-card-expiry-' + cardUid)
+        fields.CvvField().render('#pp-card-cvv-' + cardUid)
+      } catch {
+        if (alive) setCardState('unavailable')
+        return
+      }
+      if (!alive) {
+        try { if (typeof fields.teardown === 'function') fields.teardown() } catch { /* already gone */ }
+        return
+      }
+      cardFields.current = fields
+      setCardState('ready')
+    }).catch(() => { if (alive) setCardState('unavailable') })
+    return () => {
+      alive = false
+      const fields = cardFields.current
+      cardFields.current = null
+      try { if (fields && typeof fields.teardown === 'function') fields.teardown() } catch { /* already gone */ }
+    }
+  }, [cardWanted, paypalInfo?.clientId, paypalInfo?.environment, cardUid])
 
   const chooseCurrency = option => {
     if (!option || !option.available) return
     setTopupErr(null)
+    setCardErr(null)
     setCurrency(option.currency)
     setVariantId(option.currency === 'USD' && option.variants[0] ? option.variants[0].variantId : null)
   }
+
+  // Neutral copy per failure: what happened and what to do next — never blame.
+  const errorCopy = e =>
+    e && e.status === 401 ? t('Your session has expired — sign in again and come back to your wallet.')
+    : e && e.status === 402 ? t("Adding credits isn't available right now — please try again later.")
+    : e && typeof e.status === 'number' ? t('The recharge could not be started: {0}', e.message)
+    : t("We couldn't reach the payment service — check your connection and try again.")
 
   const startTopup = async () => {
     if (busy) return
@@ -248,43 +267,82 @@ function WalletPanel({ close }) {
       setTopupErr(t('No recharge options are available right now.'))
       return
     }
-    // The payment tab opens NOW, inside the click: a window opened after the order
-    // call loses the user gesture and pop-up blockers refuse it — which would mean
-    // replacing the app with the gateway, the very thing this flow avoids.
-    const tab = openPaymentTab()
     setBusy(true); setTopupErr(null)
     try {
       const { order } = await createOrder(orderAmount, orderOptions)
       const url = order && (order.redirect_url || order.redirectUrl)
       if (!url) {
         setTopupErr(t("Couldn't start the payment — try again in a moment."))
-        closeTab(tab); setBusy(false); return
+        setBusy(false); return
       }
       // Breadcrumb BEFORE the gateway opens: coming back is detected even if the
       // browser threw the page state away. The voucher lookup needs the order id.
       const orderId = order && (order.id || order.order_id || order.orderId)
       if (orderId) saveTopupRecord(orderId)
-      goToPayment(url, tab)
-      // The app stays alive now, so the button goes back to normal right away
-      // instead of waiting for a page that will never come back.
+      // Same window, always: the gateway replaces the app and the boot check speaks
+      // the result when the person comes back.
+      const went = goToPayment(url)
       setBusy(false)
-      if (orderId) {
-        // The sheet that explains the payment in progress lives inside the app.
-        useUI.getState().openSheet(c2 => <TopUpWaitSheet orderId={orderId} url={url} close={c2} />)
-      }
+      if (!went) setTopupErr(t("Couldn't open the payment page — try again in a moment."))
     } catch (e) {
-      closeTab(tab)
-      setTopupErr(
-        e.status === 401 ? t('Your session has expired — sign in again and come back to your wallet.')
-        : e.status === 402 ? t("Adding credits isn't available right now — please try again later.")
-        : typeof e.status === 'number' ? t('The recharge could not be started: {0}', e.message)
-        : t("We couldn't reach the payment service — check your connection and try again.")
-      )
+      setTopupErr(errorCopy(e))
       setBusy(false)
     }
   }
 
+  // Runs inside PayPal's createOrder callback: extract the token, post it with the
+  // selected variant, and let the server answer decide what the UI says.
+  cardCreateOrder.current = async data => {
+    const variant = selectedVariantRef.current
+    if (!variant) {
+      setCardErr(t('Choose an option first.'))
+      throw new Error('No USD variant selected')
+    }
+    const token = extractCardToken(data)
+    if (!token) {
+      setCardErr(t('We could not read the card details — please enter them again.'))
+      throw new Error('No card token')
+    }
+    setCardBusy(true); setCardErr(null)
+    try {
+      const { order } = await createCardOrder(variant.variantId, token)
+      if (!order || (!order.orderId && !order.providerOrderId)) {
+        setCardErr(t("Couldn't complete the card payment — try again in a moment."))
+        throw new Error('Malformed card order response')
+      }
+      // Drive the result from the server response, not from an SDK callback:
+      // APPROVED means the capture already happened and the credits are in.
+      const kind = statusKind(order.status)
+      if (kind === 'approved') refreshWallet()
+      useUI.getState().openSheet(c2 => <TopUpStatusSheet result={{ kind }} close={c2} />)
+      return order.providerOrderId || order.orderId
+    } catch (e) {
+      setCardErr(errorCopy(e))
+      throw e
+    } finally {
+      setCardBusy(false)
+    }
+  }
+
+  const submitCard = () => {
+    if (cardBusy) return
+    const fields = cardFields.current
+    if (!fields || typeof fields.submit !== 'function') {
+      setCardErr(t("The card form isn't available right now — you can continue on the payment page."))
+      return
+    }
+    setCardErr(null)
+    try {
+      const pending = fields.submit()
+      if (pending && typeof pending.catch === 'function') pending.catch(() => {})
+    } catch {
+      setCardErr(t("We couldn't send the card details — please try again."))
+    }
+  }
+
   const shown = movs ? movs.items : null
+  const groups = shown ? groupMovements(shown) : []
+  const usdPackList = selectedOption ? usdPacks(selectedOption) : []
   return <>
     <h3>{t('Wallet')}</h3>
 
@@ -333,7 +391,7 @@ function WalletPanel({ close }) {
           </div>
         ))}
       </div>}
-      {currency === 'CLP' ? <>
+      {showsCustomAmount(currency) ? <>
         <div className="chips" style={{ marginBottom: 10 }}>
           {PRESETS.map(p => {
             const v = clampAmount(p, limits) || p
@@ -356,34 +414,59 @@ function WalletPanel({ close }) {
           {busy ? t('Opening the payment site…') : t('Add {0} CLP in credits', fmtNum(amount))}
         </Button>
       </> : currency === 'USD' ? <>
-        <div style={{ display: 'grid', gap: 8, margin: '0 2px 10px' }}>
-          {selectedOption && selectedOption.variants.length ? selectedOption.variants.map(variant => {
-            const price = variantPrice(variant)
-            return <Button
-              key={variant.variantId}
-              variant={selectedVariant && selectedVariant.variantId === variant.variantId ? 'primary' : 'plain'}
-              onClick={() => setVariantId(variant.variantId)}
-              style={{ width: '100%' }}
+        <div className="chips" style={{ marginBottom: 10 }}>
+          {usdPackList.length ? usdPackList.map(pack => (
+            <button
+              key={pack.variantId}
+              className={'chip nocap' + (variantId === pack.variantId ? ' on' : '')}
+              aria-pressed={variantId === pack.variantId}
+              onClick={() => { setVariantId(pack.variantId); setTopupErr(null); setCardErr(null) }}
             >
-              <span className="row between" style={{ width: '100%', gap: 12 }}>
-                <span>{price}</span>
-                <span>{variant.credits != null ? t('{0} credits', variant.credits) : ''}</span>
-              </span>
-            </Button>
-          }) : <div className="dim small">{t('No recharge options are available right now.')}</div>}
+              {pack.price}{pack.credits != null ? ` · ${t('{0} credits', fmtNum(pack.credits))}` : ''}
+            </button>
+          )) : <div className="dim small">{t('No recharge options are available right now.')}</div>}
         </div>
-        <Button variant="primary" disabled={busy || !selectedVariant} onClick={startTopup}>
-          {busy
-            ? t('Opening the payment site…')
-            : selectedVariant
-              ? t('Add {0} in credits', variantPrice(selectedVariant))
-              : t('Choose an option first.')}
+        {cardWanted ? <>
+          <div className="muted small" style={{ margin: '0 2px 8px' }}>{t('Pay with a card — no account needed.')}</div>
+          {/* PayPal owns these iframes: the card data never enters our state. */}
+          <div style={{ display: 'grid', gap: 8, margin: '0 2px 10px' }}>
+            <div id={'pp-card-name-' + cardUid} />
+            <div id={'pp-card-number-' + cardUid} />
+            <div className="row" style={{ gap: 8 }}>
+              <div id={'pp-card-expiry-' + cardUid} style={{ flex: 1 }} />
+              <div id={'pp-card-cvv-' + cardUid} style={{ flex: 1 }} />
+            </div>
+          </div>
+          {cardState === 'loading' && <div className="dim small" style={{ margin: '0 2px 8px' }}>
+            {t('Loading the card form…')}
+          </div>}
+          {cardState === 'unavailable' && <div className="dim small" style={{ margin: '0 2px 8px' }}>
+            {t("The card form isn't available right now — you can continue on the payment page.")}
+          </div>}
+        </> : <div className="dim small" style={{ margin: '0 2px 8px' }}>
+          {t('Card payment is not available right now — you will continue on the payment page.')}
+        </div>}
+        <Button
+          variant="primary"
+          disabled={busy || cardBusy || !selectedVariant || (cardWanted && cardState === 'loading')}
+          onClick={cardReady ? submitCard : startTopup}
+        >
+          {cardBusy
+            ? t('Processing the payment…')
+            : busy
+              ? t('Opening the payment site…')
+              : selectedVariant
+                ? (selectedVariant.credits != null
+                  ? t('Add {0} in credits · {1} credits', usdPriceLabel(selectedVariant) || '—', fmtNum(selectedVariant.credits))
+                  : t('Add {0} in credits', usdPriceLabel(selectedVariant) || '—'))
+                : t('Choose an option first.')}
         </Button>
+        {cardErr && <div className="dim small" style={{ marginTop: 8 }}>{cardErr}</div>}
       </> : <div className="muted small">{t('No recharge options are available right now.')}</div>}
       {topupErr && <div className="dim small" style={{ marginTop: 8 }}>{topupErr}</div>}
-      <div className="dim small" style={{ marginTop: 8, lineHeight: 1.5 }}>
-        {t('The payment page opens in another tab — this app stays open and checks your recharge for you.')}
-      </div>
+      {cardReady ? null : <div className="dim small" style={{ marginTop: 8, lineHeight: 1.5 }}>
+        {t('The payment continues in this same window.')}
+      </div>}
     </>}
 
     {/* ---------- cost per operation ---------- */}
@@ -418,7 +501,7 @@ function WalletPanel({ close }) {
       ? <div className="dim small">…</div>
       : shown && shown.length === 0
         ? <div className="dim small">{t('No movements yet — your credits live here.')}</div>
-        : <div className="list">{shown.map((m, i) => <MovementRow key={i} m={m} />)}</div>}
+        : <div className="list">{groups.map(group => <MovementDay key={group.day || 'undated'} group={group} />)}</div>}
     {!movErr && movs && movs.hasMore && <Button style={{ marginTop: 10 }} onClick={loadMore}>{t('Show more')}</Button>}
     {movErr && (!shown || shown.length === 0) && <div style={gap}>
       <div className="dim small">{t("Couldn't load your movements right now — no rush, everything is kept.")}</div>

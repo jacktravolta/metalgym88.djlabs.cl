@@ -2,11 +2,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   normalizeLimits, fetchLimits, clampAmount,
   normalizeQuote, fetchQuote, formatMoney,
-  normalizeMovements, fetchMovements, movementDirection, movementLabel,
+  usdPriceLabel, usdPacks, showsCustomAmount, normalizePaypalInfo,
+  normalizeMovements, fetchMovements, movementDirection, movementLabel, groupMovements,
   normalizeTariffs, fetchTariffs, tariffLabel,
-  createOrder, goToPayment, openPaymentTab,
+  createOrder, createCardOrder, extractCardToken, loadPaypalSdk, goToPayment,
   saveTopupRecord, readTopupRecord, clearTopupRecord, TOPUP_RECORD_KEY,
-  orderStatus, statusKind, checkReturnedTopUp, checkTopupOrder,
+  orderStatus, statusKind, checkReturnedTopUp,
 } from './wallet.js'
 
 const BASE = 'https://api.djlabs.cl'
@@ -76,6 +77,7 @@ describe('payment quote', () => {
       detectedCountry: 'CL',
       detectedCurrency: 'CLP',
       defaultCurrency: 'CLP',
+      paypal: null,
       currencies: [
         { currency: 'CLP', available: true, reason: null, minClp: 1000, maxClp: 10000, presets: [1000, 5000, 10000], variants: [] },
         { currency: 'USD', available: false, reason: 'El pago en dólares todavía no está disponible.', minClp: null, maxClp: null, presets: [], variants: [] },
@@ -103,8 +105,81 @@ describe('payment quote', () => {
       presets: [1000, 5000, 10000], variants: [],
     })
     expect(out.currencies[1].variants).toEqual([
-      { variantId: '67890', priceUsd: 10, credits: 10000, amountClp: 10000, label: 'US$10' },
+      { variantId: '67890', priceUsd: 10, priceUsdCents: 1000, credits: 10000, amountClp: 10000, label: 'US$10' },
     ])
+  })
+
+  it('reads the integer price_usd_cents the API sends, so the price never depends on the label', () => {
+    const out = normalizeQuote({
+      currencies: [{
+        currency: 'USD',
+        available: true,
+        variants: [
+          { variant_id: 'paypal_1', price_usd_cents: 100, credits: 1000, label: 'US$1' },
+          { variant_id: 'paypal_5', price_usd_cents: 500, credits: 5000, label: 'US$5' },
+          { variant_id: 'paypal_10', price_usd_cents: 1000, credits: 10000, label: 'US$10' },
+        ],
+      }],
+    })
+    expect(out.currencies[0].variants.map(v => [v.variantId, v.priceUsdCents, v.priceUsd, v.credits])).toEqual([
+      ['paypal_1', 100, 1, 1000],
+      ['paypal_5', 500, 5, 5000],
+      ['paypal_10', 1000, 10, 10000],
+    ])
+  })
+
+  it('reads the public PayPal client id and environment the API exposes on the quote', () => {
+    expect(normalizeQuote({
+      currencies: [{ currency: 'USD', available: true }],
+      paypal: { client_id: 'sb-client', environment: 'sandbox' },
+    }).paypal).toEqual({ clientId: 'sb-client', environment: 'sandbox' })
+    expect(normalizePaypalInfo({ client_id: 'live-client', environment: 'live' }))
+      .toEqual({ clientId: 'live-client', environment: 'live' })
+    // Anything unknown falls back to sandbox: never point the buyer at live by accident.
+    expect(normalizePaypalInfo({ client_id: 'x', environment: 'staging' }))
+      .toEqual({ clientId: 'x', environment: 'sandbox' })
+    // A missing or unusable field must leave the card option off, not break the quote.
+    expect(normalizePaypalInfo(null)).toBe(null)
+    expect(normalizePaypalInfo({})).toBe(null)
+    expect(normalizePaypalInfo({ client_id: '   ' })).toBe(null)
+    expect(normalizeQuote({ currencies: [{ currency: 'USD', available: true }] }).paypal).toBe(null)
+  })
+
+  it('renders a USD pack row from the quote variants: dollar price plus credits', () => {
+    const usd = normalizeQuote({
+      currencies: [{
+        currency: 'USD',
+        available: true,
+        variants: [
+          { variant_id: 'paypal_1', price_usd_cents: 100, credits: 1000, label: 'US$1' },
+          { variant_id: 'paypal_5', price_usd_cents: 500, credits: 5000, label: 'US$5' },
+          { variant_id: 'paypal_10', price_usd_cents: 1000, credits: 10000, label: 'US$10' },
+        ],
+      }],
+    }).currencies[0]
+    expect(usdPacks(usd)).toEqual([
+      { variantId: 'paypal_1', price: 'US$1', credits: 1000 },
+      { variantId: 'paypal_5', price: 'US$5', credits: 5000 },
+      { variantId: 'paypal_10', price: 'US$10', credits: 10000 },
+    ])
+    expect(usdPacks(null)).toEqual([])
+  })
+
+  it('formats whole-dollar cents without decimals and keeps the cents when they matter', () => {
+    expect(usdPriceLabel({ priceUsdCents: 100 })).toBe('US$1')
+    expect(usdPriceLabel({ priceUsdCents: 550 })).toBe('US$5.50')
+    expect(usdPriceLabel({ priceUsdCents: 123400 })).toBe('US$1,234')
+    // Older/partial payloads still show a price: dollars first, then the server label.
+    expect(usdPriceLabel({ priceUsd: 5 })).toBe('US$5')
+    expect(usdPriceLabel({ label: 'US$5' })).toBe('US$5')
+    expect(usdPriceLabel(null)).toBe(null)
+  })
+
+  it('offers the custom amount field for CLP only — USD prices are server-owned variants', () => {
+    expect(showsCustomAmount('CLP')).toBe(true)
+    expect(showsCustomAmount('USD')).toBe(false)
+    expect(showsCustomAmount('')).toBe(false)
+    expect(showsCustomAmount(null)).toBe(false)
   })
 
   it('returns null for garbage instead of exposing a broken quote to the UI', () => {
@@ -178,6 +253,41 @@ describe('movements', () => {
     expect(movementLabel('REFERRAL_CREDIT')).toBe('Referral credit')
     expect(movementLabel('GYM_BONUS')).toBe('Gym bonus')
     expect(movementLabel('')).toBe('Movement')
+  })
+
+  it('groups movements by calendar day with the net total and the type breakdown', () => {
+    const items = [
+      { type: 'USAGE_DEBIT', label: 'AI usage', amount: 2000, dir: -1, date: '2026-11-17T10:00:00Z' },
+      { type: 'PURCHASE_CREDIT', label: 'Credit purchase', amount: 10000, dir: 1, date: '2026-11-17T08:00:00Z' },
+      { type: 'WELCOME_CREDIT', label: 'Welcome credit', amount: 100, dir: 1, date: '2026-11-16T09:00:00Z' },
+    ]
+    const groups = groupMovements(items)
+    expect(groups).toHaveLength(2)
+    expect(groups[0].day).toBe('2026-11-17')
+    expect(groups[0].net).toBe(8000)
+    expect(groups[0].items).toEqual(items.slice(0, 2))  // newest-first order is kept
+    // Types appear in the order they were met, each with its signed day total.
+    expect(groups[0].types).toEqual([
+      { type: 'USAGE_DEBIT', label: 'AI usage', total: -2000 },
+      { type: 'PURCHASE_CREDIT', label: 'Credit purchase', total: 10000 },
+    ])
+    expect(groups[1].day).toBe('2026-11-16')
+    expect(groups[1].net).toBe(100)
+    expect(groups[1].types).toEqual([
+      { type: 'WELCOME_CREDIT', label: 'Welcome credit', total: 100 },
+    ])
+  })
+
+  it('groups undated rows last instead of dropping them, and survives empty input', () => {
+    const groups = groupMovements([
+      { type: 'REFUND', label: 'Refund', amount: 50, dir: 1, date: null },
+      { type: 'REFUND', label: 'Refund', amount: 25, dir: 1, date: 'not-a-date' },
+    ])
+    expect(groups).toHaveLength(1)
+    expect(groups[0].day).toBe(null)
+    expect(groups[0].net).toBe(75)
+    expect(groupMovements([])).toEqual([])
+    expect(groupMovements(null)).toEqual([])
   })
 })
 
@@ -304,59 +414,145 @@ describe('createOrder — provider-agnostic order creation', () => {
   })
 })
 
-describe('goToPayment', () => {
-  it('opens the gateway in a NEW tab and leaves this app exactly where it is', () => {
-    const opened = { location: { href: '' } }
-    const fakeWindow = { location: { href: 'https://app/start' }, open: vi.fn(() => opened) }
-    vi.stubGlobal('window', fakeWindow)
-    expect(goToPayment('https://pay.example/checkout')).toBe('tab')
-    expect(fakeWindow.open).toHaveBeenCalledWith('', '_blank')
-    expect(opened.location.href).toBe('https://pay.example/checkout')
-    expect(opened.opener).toBe(null)                    // the payment page cannot reach back
-    expect(fakeWindow.location.href).toBe('https://app/start')  // the app did NOT navigate
-  })
-
-  it('uses the tab opened beforehand (inside the click gesture) instead of opening another', () => {
-    const opened = { location: { href: '' } }
-    const fakeWindow = { location: { href: 'https://app/start' }, open: vi.fn(() => null) }
-    vi.stubGlobal('window', fakeWindow)
-    expect(goToPayment('https://pay.example/checkout', opened)).toBe('tab')
-    expect(fakeWindow.open).not.toHaveBeenCalled()
-    expect(opened.location.href).toBe('https://pay.example/checkout')
-  })
-
-  it('falls back to the same tab when the browser blocks the window', () => {
-    const fakeWindow = { location: { href: 'https://app/start' }, open: vi.fn(() => null) }
-    vi.stubGlobal('window', fakeWindow)
-    expect(goToPayment('https://pay.example/checkout')).toBe('same-tab')
-    expect(fakeWindow.location.href).toBe('https://pay.example/checkout')
-  })
-
-  it('falls back to the same tab when window.open throws', () => {
+describe('goToPayment — always the same window', () => {
+  it('navigates this window to the gateway and NEVER opens another tab', () => {
     const fakeWindow = {
-      location: { href: 'https://app/start' },
-      open: vi.fn(() => { throw new Error('blocked') }),
+      location: { href: 'https://app/start', assign: vi.fn() },
+      open: vi.fn(() => { throw new Error('no window.open allowed') }),
     }
     vi.stubGlobal('window', fakeWindow)
-    expect(goToPayment('https://pay.example/checkout')).toBe('same-tab')
+    expect(goToPayment('https://pay.example/checkout')).toBe(true)
+    expect(fakeWindow.location.assign).toHaveBeenCalledWith('https://pay.example/checkout')
+    expect(fakeWindow.open).not.toHaveBeenCalled()
+  })
+
+  it('falls back to location.href when assign is unavailable — still the same window', () => {
+    const fakeWindow = { location: { href: 'https://app/start' }, open: vi.fn() }
+    vi.stubGlobal('window', fakeWindow)
+    expect(goToPayment('https://pay.example/checkout')).toBe(true)
     expect(fakeWindow.location.href).toBe('https://pay.example/checkout')
+    expect(fakeWindow.open).not.toHaveBeenCalled()
+  })
+
+  it('does nothing (and reports it) without a URL', () => {
+    const fakeWindow = { location: { href: 'https://app/start', assign: vi.fn() } }
+    vi.stubGlobal('window', fakeWindow)
+    expect(goToPayment('')).toBe(false)
+    expect(goToPayment(null)).toBe(false)
+    expect(fakeWindow.location.assign).not.toHaveBeenCalled()
   })
 })
 
-describe('openPaymentTab', () => {
-  it('opens a blank tab and cuts the opener, so the gateway cannot reach back', () => {
-    const opened = { location: { href: '' }, opener: 'app' }
-    const fakeWindow = { open: vi.fn(() => opened) }
-    vi.stubGlobal('window', fakeWindow)
-    const tab = openPaymentTab()
-    expect(fakeWindow.open).toHaveBeenCalledWith('', '_blank')
-    expect(tab).toBe(opened)
-    expect(tab.opener).toBe(null)
+describe('card checkout — token only, never raw card data', () => {
+  it('extracts the token from every shape the SDK may hand over', () => {
+    expect(extractCardToken({ paymentSource: { card: { token: 'tok_card' } } })).toBe('tok_card')
+    expect(extractCardToken({ paymentSource: { card: { id: 'tok_id' } } })).toBe('tok_id')
+    expect(extractCardToken({ card: { token: 'tok_top' } })).toBe('tok_top')
+    expect(extractCardToken({ paymentSource: 'tok_source' })).toBe('tok_source')
+    expect(extractCardToken({ token: 'tok_flat' })).toBe('tok_flat')
+    expect(extractCardToken('tok_plain')).toBe('tok_plain')
+    // A card NUMBER is not a token: it must never travel to our API.
+    expect(extractCardToken({ paymentSource: { card: { number: '4111111111111111', cvv: '123' } } })).toBe(null)
+    expect(extractCardToken({})).toBe(null)
+    expect(extractCardToken(null)).toBe(null)
   })
 
-  it('returns null when the browser refuses the window', () => {
-    vi.stubGlobal('window', { open: vi.fn(() => null) })
-    expect(openPaymentTab()).toBe(null)
+  it('POSTs only { variant_id, card_token } with its own Idempotency-Key', async () => {
+    const m = mockFetch([res(200, {
+      order_id: 'o-card', provider_order_id: 'pp-1', status: 'APPROVED', credits: 5000,
+    })])
+    vi.stubGlobal('fetch', m.impl)
+    const { order, idempotencyKey } = await createCardOrder('paypal_5', 'tok_123', { genKey: () => 'CARD-KEY' })
+    const call = m.seen[0]
+    expect(call.url).toBe(BASE + '/payments/orders/card')
+    expect(call.opts.method).toBe('POST')
+    expect(call.opts.headers['Idempotency-Key']).toBe('CARD-KEY')
+    expect(idempotencyKey).toBe('CARD-KEY')
+    expect(JSON.parse(call.opts.body)).toEqual({
+      variant_id: 'paypal_5', card_token: 'tok_123', heart: 'metalgym88',
+    })
+    // Nothing card-shaped ever reaches the API body.
+    const body = JSON.parse(call.opts.body)
+    expect(body).not.toHaveProperty('card_number')
+    expect(body).not.toHaveProperty('number')
+    expect(body).not.toHaveProperty('cvv')
+    expect(body).not.toHaveProperty('expiry')
+    expect(body).not.toHaveProperty('amount_clp')
+    expect(body).not.toHaveProperty('credits')
+    expect(order).toEqual({
+      orderId: 'o-card', providerOrderId: 'pp-1', status: 'APPROVED', credits: 5000, redirectUrl: null,
+    })
+  })
+
+  it('reuses ONE key across network retries — a captured card is never charged twice', async () => {
+    const m = mockFetch(['network', res(200, { order_id: 'o-2', status: 'PENDING' })])
+    vi.stubGlobal('fetch', m.impl)
+    await createCardOrder('paypal_5', 'tok_123', { genKey: () => 'SAME-CARD-KEY' })
+    expect(m.impl).toHaveBeenCalledTimes(2)
+    expect(m.seen.map(c => c.opts.headers['Idempotency-Key'])).toEqual(['SAME-CARD-KEY', 'SAME-CARD-KEY'])
+    expect(m.seen[1].opts.body).toBe(m.seen[0].opts.body)
+  })
+
+  it('stops at the first answered error instead of retrying a real decision', async () => {
+    const m = mockFetch([res(402, { error: 'Card capture failed', code: 'CARD_DECLINED' })])
+    vi.stubGlobal('fetch', m.impl)
+    const err = await createCardOrder('paypal_5', 'tok_123', { genKey: () => 'K' }).catch(e => e)
+    expect(m.impl).toHaveBeenCalledTimes(1)
+    expect(err.status).toBe(402)
+    expect(err.code).toBe('CARD_DECLINED')
+  })
+})
+
+describe('PayPal JS SDK loader', () => {
+  function fakeDom() {
+    const appended = []
+    const document = {
+      head: { appendChild: el => { appended.push(el) } },
+      createElement: () => ({}),
+    }
+    return { appended, document }
+  }
+
+  it('builds the sandbox card-fields URL with the API client id and loads it once', async () => {
+    const { appended, document } = fakeDom()
+    const fakeWindow = {}
+    vi.stubGlobal('document', document)
+    vi.stubGlobal('window', fakeWindow)
+    const p = loadPaypalSdk({ clientId: 'sb-client', environment: 'sandbox' })
+    expect(appended).toHaveLength(1)
+    expect(appended[0].src).toBe('https://www.sandbox.paypal.com/sdk/js?client-id=sb-client&components=card-fields&currency=USD')
+    // A second call shares the same in-flight script.
+    loadPaypalSdk({ clientId: 'sb-client', environment: 'sandbox' })
+    expect(appended).toHaveLength(1)
+    fakeWindow.paypal = { CardFields: () => ({}) }
+    appended[0].onload()
+    expect(await p).toBe(fakeWindow.paypal)
+  })
+
+  it('uses the live host only when the API says live', async () => {
+    const { appended, document } = fakeDom()
+    vi.stubGlobal('document', document)
+    vi.stubGlobal('window', {})
+    loadPaypalSdk({ clientId: 'live-client', environment: 'live' })
+    expect(appended[0].src).toBe('https://www.paypal.com/sdk/js?client-id=live-client&components=card-fields&currency=USD')
+  })
+
+  it('refuses to load anything without a client id — the card option stays off', async () => {
+    const { appended, document } = fakeDom()
+    vi.stubGlobal('document', document)
+    vi.stubGlobal('window', {})
+    expect(await loadPaypalSdk({ clientId: '' })).toBe(null)
+    expect(await loadPaypalSdk(null)).toBe(null)
+    expect(appended).toHaveLength(0)
+  })
+
+  it('resolves null when the script cannot load, so the wallet can fall back honestly', async () => {
+    const { appended, document } = fakeDom()
+    vi.stubGlobal('document', document)
+    vi.stubGlobal('window', {})
+    const p = loadPaypalSdk({ clientId: 'broken-client', environment: 'sandbox' })
+    appended[0].onerror()
+    expect(await p).toBe(null)
   })
 })
 
@@ -461,46 +657,5 @@ describe('checkReturnedTopUp', () => {
     vi.stubGlobal('fetch', m.impl)
     expect(await checkReturnedTopUp()).toBe(null)
     expect(store.has(TOPUP_RECORD_KEY)).toBe(true)
-  })
-})
-
-describe('checkTopupOrder', () => {
-  it('asks the voucher endpoint about that order and maps the result', async () => {
-    const m = mockFetch([res(200, { status: 'APPROVED' })])
-    vi.stubGlobal('fetch', m.impl)
-    const got = await checkTopupOrder('o-42')
-    expect(m.seen[0].url).toBe(BASE + '/payments/orders/o-42/voucher?heart=metalgym88')
-    expect(got).toEqual({ orderId: 'o-42', voucher: { status: 'APPROVED' }, status: 'APPROVED', kind: 'approved' })
-  })
-
-  it('does NOT consume the breadcrumb — the wallet keeps asking while the person pays', async () => {
-    const store = new Map()
-    Object.defineProperty(globalThis, 'localStorage', {
-      value: {
-        getItem: k => (store.has(k) ? store.get(k) : null),
-        setItem: (k, v) => { store.set(k, String(v)) },
-        removeItem: k => { store.delete(k) },
-      },
-      configurable: true
-    })
-    saveTopupRecord('o-42', Date.now())
-    const m = mockFetch([res(200, { status: 'PENDING' })])
-    vi.stubGlobal('fetch', m.impl)
-    const got = await checkTopupOrder('o-42')
-    expect(got.kind).toBe('pending')
-    expect(store.has(TOPUP_RECORD_KEY)).toBe(true)  // still there for the boot check
-  })
-
-  it('returns null on a network error instead of throwing', async () => {
-    const m = mockFetch(['network'])
-    vi.stubGlobal('fetch', m.impl)
-    expect(await checkTopupOrder('o-42')).toBe(null)
-  })
-
-  it('asks nothing without an order id', async () => {
-    const m = mockFetch([])
-    vi.stubGlobal('fetch', m.impl)
-    expect(await checkTopupOrder(null)).toBe(null)
-    expect(m.impl).not.toHaveBeenCalled()
   })
 })
