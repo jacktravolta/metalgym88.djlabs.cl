@@ -122,3 +122,21 @@ wallet component, the platform library, the locales and their tests).
   Without the client id (or if the SDK fails to load) the card form stays off,
   the wallet says so, and the buy button uses the same-window redirect.
   Work-unit commit: `d42832e` (this entry records the hash it produced).
+
+- 2026-11-17 — **T5 — CSP allows the PayPal card fields (inline, mechanical).**
+  The policy shipped in `index.html` (meta tag) and in `_headers` /
+  `public/_headers` kept `script-src 'self'` and `connect-src 'self'
+  https://api.djlabs.cl`, and declared no `frame-src`, so the browser blocked
+  PayPal's JS SDK and its card-fields iframe (`default-src 'self'` is the
+  fallback for frames). Added `https://*.paypal.com` and
+  `https://*.paypalobjects.com` to `script-src`, `connect-src`, `frame-src`,
+  `child-src` and `style-src`, following PayPal's CSP guidance for the JS SDK
+  v5 CardFields component. The inline-script hashes are untouched and no
+  `'unsafe-inline'` was added to `script-src`.
+  Checks: `npm run build` ok — the compiled `dist/_headers` and `dist/index.html`
+  carry the new directives; `npx vitest run src/lib/platform/wallet.test.js`
+  49/49 passed. Route: inline (three mechanical, already-understood edits).
+  **Pending outside the repo:** the live response-header CSP is injected by the
+  edge (the served `/_headers` path falls back to the SPA shell, so the file is
+  not what the browser reads); the edge must apply the same string, because
+  the browser enforces the strictest of the two policies.
