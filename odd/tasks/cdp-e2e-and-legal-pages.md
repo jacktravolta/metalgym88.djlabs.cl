@@ -338,3 +338,12 @@ merged. Until then the live links keep pointing at the API.
    grows them, they come back as platform features, not as calls to a
    self-API that no longer exists.
 
+
+- 2026-11-17 — **Sitemap + crawler policy (inline, small and already understood).**
+  The site had no `sitemap.xml`: `/sitemap.xml` answered with the SPA shell (the
+  catch-all fallback), so a crawler could not tell the public pages from the
+  session-only app. Added `public/sitemap.xml` (the landing, `/auth/login` and
+  the two legal pages, which the host rewrites to their extensionless URL) and
+  `public/robots.txt` (allows the public pages, blocks the app routes that need
+  a session, points to the sitemap). Checks: `npm run build` ok — the compiled
+  `dist/` carries both files and the XML parses.

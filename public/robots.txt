@@ -1,0 +1,15 @@
+# metalgym88 — crawler policy.
+# The application routes need a session, so they are not indexable; the public
+# pages are listed in the sitemap.
+User-agent: *
+Allow: /
+Disallow: /auth/verify
+Disallow: /home
+Disallow: /plan
+Disallow: /workout
+Disallow: /history
+Disallow: /library
+Disallow: /stats
+Disallow: /settings
+
+Sitemap: https://metalgym88.djlabs.cl/sitemap.xml
