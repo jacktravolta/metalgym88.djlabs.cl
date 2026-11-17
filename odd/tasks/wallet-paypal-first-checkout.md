@@ -121,3 +121,4 @@ wallet component, the platform library, the locales and their tests).
   API's card endpoint and `quote.paypal.client_id` from the parallel work unit.
   Without the client id (or if the SDK fails to load) the card form stays off,
   the wallet says so, and the buy button uses the same-window redirect.
+  Work-unit commit: `d42832e` (this entry records the hash it produced).
