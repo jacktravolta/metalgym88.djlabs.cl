@@ -10,6 +10,7 @@ platform at `https://api.djlabs.cl`.
 ```bash
 node scripts/e2e/run.js                 # every scenario
 node scripts/e2e/run.js S1 S7           # only these scenarios
+node scripts/e2e/run.js --only=S8       # the same, by flag (comma lists work: --only=S5,S8)
 node scripts/e2e/probe-api.js           # one-off: what does the browser see from the platform?
 ```
 
@@ -49,6 +50,41 @@ a defect returns `FAIL` with the evidence that proves it.
 The suite never completes a real payment and never asks for a card: the
 gateway hand-off is recorded (the URL the app hands over) and the last leg is
 left to a human.
+
+## S8 — the credit burn (opt-in, spends real credits)
+
+S8 is the only scenario that **spends**. It registers a brand-new account
+through the visible landing form, reads the real magic-link email, opens the
+coach and holds a human, training-related conversation in Spanish until the
+welcome credits run out. It is twice gated:
+
+- `E2E_ALLOW_SPEND=1` must be set, or it returns `BLOCKED` with
+  `skipped — E2E_ALLOW_SPEND=1 is not set` and touches nothing.
+- The disposable inbox must be reachable; otherwise it says exactly why and
+  stops before registering.
+
+```bash
+E2E_ALLOW_SPEND=1 node scripts/e2e/run.js --only=S8
+```
+
+Optional knobs (all bounded, nothing is unbounded by accident):
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `E2E_BURN_MAX_MESSAGES` | `40` | Stop after this many answered questions. |
+| `E2E_BURN_MAX_SECONDS` | `900` | Stop after this much wall-clock time. |
+| `E2E_BURN_ANSWER_TIMEOUT_MS` | `120000` | Per-answer bound. |
+| `E2E_BURN_NAME` | `Camila` | The name the first question introduces. |
+| `E2E_BURN_EMAIL` | `mg88e2e` | Local part of the fresh plus-addressed inbox. |
+
+It stops on a zero balance, a `402`, a `429`, a session expiry, an empty
+answer, the message cap or the time cap, and reports exactly where and why.
+The evidence lands in `artifacts/e2e/s8-credit-burn.md` (per-message table
+plus totals) and `s8-credit-burn.json`. Every number is observed: tokens come
+from the response when the platform reports them (**"not reported"**
+otherwise), credits come from the balance deltas, and the CLP price comes from
+the wallet's own `/tariffs`, `/payments/limits` and `/payments/quote`
+answers — never from a constant in the scenario.
 
 ## Interaction rules
 

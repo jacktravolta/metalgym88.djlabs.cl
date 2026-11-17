@@ -3,6 +3,7 @@
 //
 //   node scripts/e2e/run.js              # every scenario
 //   node scripts/e2e/run.js S1 S7        # only these scenarios
+//   node scripts/e2e/run.js --only=S8    # the same, by flag (comma lists work)
 //
 // It launches headless Chrome, drives the public deployment over the Chrome
 // DevTools Protocol and writes the reports into artifacts/e2e/ (git-ignored).
@@ -25,14 +26,40 @@ import s4Recovery from './scenarios/s4-access-recovery.js'
 import s5Topup from './scenarios/s5-topup.js'
 import s6Navigation from './scenarios/s6-navigation.js'
 import s7Legal from './scenarios/s7-legal-pages.js'
+import s8CreditBurn from './scenarios/s8-credit-burn.js'
 
-const ALL = [s1Contact, s2Register, s2bVerify, s3Login, s4Recovery, s5Topup, s6Navigation, s7Legal]
+const ALL = [s1Contact, s2Register, s2bVerify, s3Login, s4Recovery, s5Topup, s6Navigation, s7Legal, s8CreditBurn]
 
 const OUT_DIR = resolve(process.env.E2E_OUT || join(process.cwd(), 'artifacts', 'e2e'))
 const SCREENSHOT_DIR = join(OUT_DIR, 'screenshots')
 
+// The scenario IDs the command line asked for, from positionals (S1 S7) and/or
+// flags (--only=S8, --only=S5,S8, --only S8). An argument starting with "-" used
+// to be dropped silently, so "--only=S8" ran the whole suite; now it selects.
+function requestedIds(argv) {
+  const ids = []
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]
+    if (arg === '--only' || arg === '--scenario') {
+      const next = argv[i + 1]
+      if (next && !next.startsWith('-')) {
+        ids.push(...next.split(','))
+        i++
+      }
+      continue
+    }
+    if (arg.startsWith('--only=') || arg.startsWith('--scenario=')) {
+      ids.push(...arg.slice(arg.indexOf('=') + 1).split(','))
+      continue
+    }
+    if (arg.startsWith('-')) continue
+    ids.push(arg)
+  }
+  return ids.map(id => id.trim()).filter(Boolean)
+}
+
 async function main() {
-  const requested = process.argv.slice(2).filter(arg => !arg.startsWith('-'))
+  const requested = requestedIds(process.argv.slice(2))
   const scenarios = requested.length
     ? ALL.filter(s => requested.some(id => id.toLowerCase() === s.id.toLowerCase()))
     : ALL
@@ -87,6 +114,10 @@ async function main() {
       baseUrl: BASE_URL,
       heart: HEART,
       chromeVersion: chrome.version.Browser,
+      // The scenarios this run selected: a scenario that must not share the
+      // suite's inbox (S8 registers a brand-new account) can tell whether that
+      // inbox is still untouched.
+      selectedScenarios: scenarios.map(s => s.id),
       email: null,
       mailbox: null,
       mailboxError: null,
