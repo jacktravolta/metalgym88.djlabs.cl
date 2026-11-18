@@ -10,9 +10,13 @@
 
 const RULES = [
   // Query-string secrets: ?token=… / &code=…
-  [/([?&](?:token|code|key|hash|state|access_token|refresh_token|password|otp)=)[^&\s"'<>]+/gi, '$1REDACTED'],
+  [/([?&](?:token|card_token|code|key|hash|state|access_token|refresh_token|password|otp|client_id|client-id)=)[^&\s"'<>]+/gi, '$1REDACTED'],
+  // The same secrets can be nested inside another URL parameter (for example
+  // an analytics referrer), where the delimiter and "=" are URL-encoded.
+  [/((?:%3f|%26)(?:token|card_token|code|key|hash|state|access_token|refresh_token|password|otp|client_id|client-id)(?:=|%3d))([A-Za-z0-9._~+/-]+)/gi,
+    '$1REDACTED'],
   // JSON / object fields: "access_token":"…"
-  [/\b(access_token|refresh_token|auth_token|token|password|passwd|secret|api_key|apikey)\b(\s*[:=]\s*)("?)([^"\s,&}]+)/gi,
+  [/(["']?\b(?:access_token|refresh_token|auth_token|card_token|token|password|passwd|secret|api_key|apikey|client_id|client-id)\b["']?)(\s*[:=]\s*)("?)([^"\s,&}]+)/gi,
     (_m, key, sep, quote) => `${key}${sep}${quote}REDACTED`],
   // Authorization headers.
   [/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer REDACTED'],
