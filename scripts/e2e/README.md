@@ -32,7 +32,7 @@ non-zero exit means the harness itself could not run.
 | `runner.js` | The scenario loop, the PASS/FAIL/BLOCKED table and the two reports. |
 | `config.js` | The fixed coordinates (origin, platform host, heart) and the visible strings the suite looks for. |
 | `redact.js` | The redaction of tokens, cookies and one-shot links before anything reaches a report. |
-| `lib/mailbox.js` | The disposable inbox (mail.tm, public API, no key) that reads the real magic-link email. |
+| `lib/mailbox.js` | The mailbox client: a pinned inbox when configured, otherwise a disposable mail.tm inbox that reads the real magic-link email. |
 | `lib/net.js` | HTTP with bounded retries and a TLS reachability probe. |
 | `scenarios/` | The journeys themselves, one file per scenario. |
 
@@ -47,9 +47,11 @@ non-zero exit means the harness itself could not run.
 A blocked scenario is **never** reported as a pass, and a scenario that proves
 a defect returns `FAIL` with the evidence that proves it.
 
-The suite never completes a real payment and never asks for a card: the
+The default suite never completes a payment and never asks for a card: the
 gateway hand-off is recorded (the URL the app hands over) and the last leg is
-left to a human.
+left to a human. The opt-in S9 sandbox scenario is the single exception; it
+types a sandbox fixture inside PayPal's own frames and proves the resulting
+sandbox order.
 
 ## S8 — the credit burn (opt-in, spends real credits)
 
@@ -85,6 +87,64 @@ from the response when the platform reports them (**"not reported"**
 otherwise), credits come from the balance deltas, and the CLP price comes from
 the wallet's own `/tariffs`, `/payments/limits` and `/payments/quote`
 answers — never from a constant in the scenario.
+
+## S9 — PayPal sandbox card (opt-in, completes a sandbox payment)
+
+S9 proves the USD card rail end to end against the live deployment: it signs
+in through the mailbox, opens the wallet through the visible UI, reads the
+server-owned USD variants from `GET /payments/quote`, types PayPal's sandbox
+fixture inside PayPal's cross-origin frames, verifies that
+`POST /payments/orders/card` carries only the selected variant and PayPal's
+single-use token, and then checks the approved order, the balance delta and
+the `PURCHASE_CREDIT` ledger movement.
+
+It is **sandbox-only**. The scenario refuses to read a card or create an order
+unless the quote itself reports `paypal.environment === "sandbox"`. It never
+targets PayPal live, and a `202 PAYMENT_PENDING` is reported as `BLOCKED` and
+is never retried.
+
+The mutation gate is mandatory:
+
+```bash
+E2E_ALLOW_PAYPAL_SANDBOX=1 node scripts/e2e/run.js --only=S9
+```
+
+Without `E2E_ALLOW_PAYPAL_SANDBOX=1`, S9 returns `BLOCKED` before sign-in,
+before an account can be registered, before an order and before any card
+value is read.
+
+### Pinned mailbox
+
+A stable identity is required because the sandbox rail is allowlisted by exact
+email. Set both variables to use the pre-created mailbox; when they are
+absent, the suite keeps its historical random per-run inbox:
+
+```bash
+export E2E_MAIL_ADDRESS='...'
+export E2E_MAIL_PASSWORD='...'
+```
+
+The pinned address is not printed and the reports label it as redacted. Keep
+these values in an external environment file with restrictive permissions;
+do not add them to the repository.
+
+### Card fixture
+
+The sandbox card values are also external fixtures. Set all four variables
+before an opted-in run:
+
+| Variable | Field |
+|----------|-------|
+| `E2E_PAYPAL_CARD_NUMBER` | Card number |
+| `E2E_PAYPAL_CARD_EXPIRY` | Expiry |
+| `E2E_PAYPAL_CARD_CVV` | CVV |
+| `E2E_PAYPAL_CARD_NAME` | Cardholder name |
+
+The values are typed by the browser into PayPal's own frames. They are never
+stored in source, printed, put in evidence or captured in a screenshot. Only
+PayPal's single-use `card_token` reaches our API. Report redaction masks that
+token and removes every known mailbox or fixture value by exact match, even if
+one appears incidentally inside a recorded URL.
 
 ## Interaction rules
 
