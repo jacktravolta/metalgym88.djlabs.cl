@@ -29,13 +29,13 @@ import {
   saveTopupRecord, checkReturnedTopUp,
 } from '../lib/platform/wallet.js'
 import Icon from './Icon.jsx'
-import { Button, NumberField } from './ui.jsx'
+import { Button } from './ui.jsx'
 
 const gap = { display: 'grid', gap: 10 }
 // Default pack when the platform gives no limits of its own (server still re-clamps).
-// Temporary: the 100 CLP pack exists only to exercise a real payment end to
-// end. Remove it once the real-price test is done.
-const PRESETS = [100, 1000, 5000, 10000]
+// 350 CLP is the smallest amount the card gateway accepts, so it is the
+// smallest pack we offer: anything below it never opens the payment page.
+const PRESETS = [350, 1000, 5000, 10000]
 const DEFAULT_AMOUNT = 5000
 // PayPal renders its card fields inside our sheet. The iframe keeps its own light
 // input surface, so the text stays dark and readable on it in every app theme.
@@ -399,11 +399,6 @@ function WalletPanel({ close }) {
               {fmtNum(v)} CLP
             </button>
           })}
-        </div>
-        <div className="row between" style={{ padding: '8px 2px', gap: 10 }}>
-          <span className="muted small">{t('Other amount (CLP)')}</span>
-          <NumberField value={amount} decimal={false} style={{ width: 110, textAlign: 'right' }}
-            onChange={v => setAmount(v)} onBlur={() => setAmount(clampAmount(amount, limits))} />
         </div>
         {limits && <div className="dim small" style={{ margin: '0 2px 10px' }}>
           {limits.min != null || limits.max != null

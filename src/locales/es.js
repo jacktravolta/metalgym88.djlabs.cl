@@ -633,7 +633,6 @@ export default {
   'Open the assistant': 'Abrir el asistente',
   'Opening the payment site…': 'Abriendo el sitio de pago…',
   'Or use metalgym88 without an account, everything stays on this device.': 'O usa metalgym88 sin cuenta: todo se queda en este dispositivo.',
-  'Other amount (CLP)': 'Otro monto (CLP)',
   'Card payment is not available right now — you will continue on the payment page.': 'El pago con tarjeta no está disponible ahora — continuarás en la página de pago.',
   'Check the card details and try again.': 'Revisa los datos de la tarjeta e inténtalo de nuevo.',
   "Couldn't complete the card payment — try again in a moment.": 'No se pudo completar el pago con tarjeta — inténtalo de nuevo en un momento.',
