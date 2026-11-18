@@ -16,6 +16,7 @@
 //    the change exactly as it would from a human typing.
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { classifyFrameField, frameFieldSelectors, redactSensitiveValues } from './lib/frames.js'
 
 /** Injected into the page before every expression. */
 const PAGE_HELPERS = `
@@ -243,6 +244,11 @@ export class Page {
     this.screenshots = []
     this.pageOrigin = null
     this.bodyErrors = []
+    // Child target sessions are kept so a cross-origin iframe can be driven in
+    // its own CDP session. The metadata is internal: a target URL can carry
+    // provider state and never belongs in a report.
+    this.childSessions = new Map()
+    this.sensitiveValues = []
     this.#bind()
   }
 
@@ -250,54 +256,187 @@ export class Page {
     return this.conn.send(method, params, this.sessionId, timeoutMs)
   }
 
+  /** Registers a child target session attached by Target.setAutoAttach. */
+  trackChildSession(sessionId, targetInfo = {}) {
+    if (!sessionId) return null
+    const record = {
+      sessionId,
+      targetId: targetInfo.targetId || null,
+      type: targetInfo.type || null,
+      url: targetInfo.url || null,
+      title: targetInfo.title || null,
+      attachedAt: Date.now(),
+    }
+    this.childSessions.set(sessionId, record)
+    return record
+  }
+
+  /** Enables the domains needed to inspect and type inside a child frame. */
+  async enableChildSession(sessionId) {
+    if (!sessionId || !this.childSessions.has(sessionId)) return false
+    await Promise.all([
+      this.conn.send('Runtime.enable', {}, sessionId),
+      this.conn.send('DOM.enable', {}, sessionId),
+    ])
+    return true
+  }
+
+  /** Forgets a target that Chrome detached. */
+  removeChildSession(sessionId) {
+    if (!sessionId) return
+    this.childSessions.delete(sessionId)
+  }
+
+  /** The child targets currently attached to the page. */
+  childTargets() {
+    return Array.from(this.childSessions.values()).map(target => ({ ...target }))
+  }
+
+  /** Registers values that must never be retained in console output. */
+  setSensitiveValues(values = []) {
+    this.sensitiveValues = values.map(value => String(value || '')).filter(Boolean)
+  }
+
+  async #frameFieldCandidate(field) {
+    const targets = this.childTargets()
+      .filter(target => target.type === 'iframe' || target.type === 'webview')
+    for (const target of targets) {
+      try {
+        const document = await this.conn.send(
+          'DOM.getDocument',
+          { depth: -1, pierce: true },
+          target.sessionId,
+          15000
+        )
+        const rootNodeId = document && document.root ? document.root.nodeId : null
+        if (rootNodeId == null) continue
+
+        // The generic query finds the frame's actual input. The semantic
+        // queries are a fallback when that frame carries more than one input.
+        const selectors = [
+          'input:not([type="hidden"]), textarea',
+          ...frameFieldSelectors(field),
+        ]
+        for (const selector of selectors) {
+          const query = await this.conn.send(
+            'DOM.querySelector',
+            { nodeId: rootNodeId, selector },
+            target.sessionId,
+            10000
+          )
+          const nodeId = query && query.nodeId
+          if (nodeId == null || nodeId === 0) continue
+          const attributes = await this.conn.send(
+            'DOM.getAttributes',
+            { nodeId },
+            target.sessionId,
+            10000
+          )
+          const classified = classifyFrameField(attributes && attributes.attributes)
+          if (classified !== field) continue
+          return {
+            field,
+            nodeId,
+            sessionId: target.sessionId,
+            targetId: target.targetId,
+            targetType: target.type,
+          }
+        }
+      } catch {
+        // A frame can detach while it is being inspected. The next poll sees
+        // the current set of targets instead of failing the whole journey.
+      }
+    }
+    return null
+  }
+
+  /** Finds a semantic card field in the current child sessions, if any. */
+  async findFrameField(field) {
+    return await this.#frameFieldCandidate(field)
+  }
+
+  /** Waits until a semantic card field is present inside a child frame. */
+  async waitForFrameField(field, timeoutMs = 20000) {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      const found = await this.#frameFieldCandidate(field)
+      if (found) return found
+      await new Promise(r => setTimeout(r, 150))
+    }
+    throw new StepTimeout(`the ${field} field did not mount inside a child frame within ${timeoutMs}ms`, {
+      childTargets: this.childTargets().map(target => ({ type: target.type, url: target.url })),
+    })
+  }
+
+  /** Focuses a frame input and types into it through the same CDP session. */
+  async fillFrameField(field, value, { timeoutMs = 20000 } = {}) {
+    const target = await this.waitForFrameField(field, timeoutMs)
+    await this.conn.send('DOM.focus', { nodeId: target.nodeId }, target.sessionId, 10000)
+    await this.conn.send('Input.insertText', { text: String(value) }, target.sessionId, 10000)
+    return {
+      field,
+      targetType: target.targetType,
+      targetId: target.targetId,
+    }
+  }
+
   #bind() {
-    const on = (method, handler) => {
+    const on = (method, handler, { includeChildSessions = false } = {}) => {
       this.conn.on(method, (params, sessionId) => {
-        if (sessionId && sessionId !== this.sessionId) return
-        try { handler(params) } catch (e) {
+        const isMain = !sessionId || sessionId === this.sessionId
+        const isKnownChild = includeChildSessions && sessionId && this.childSessions.has(sessionId)
+        if (!isMain && !isKnownChild) return
+        try { handler(params, sessionId) } catch (e) {
           console.error(`[page] ${method} handler threw:`, e && e.message)
         }
       })
     }
 
-    on('Runtime.consoleAPICalled', params => {
+    // Runtime and Log events from a registered child frame are useful when the
+    // provider reports why a field failed. Network events deliberately remain
+    // main-session-only: a payment iframe can carry raw card data to its own
+    // provider, and the harness has no reason to retain that traffic.
+    on('Runtime.consoleAPICalled', (params, sessionId) => {
       const text = (params.args || [])
         .map(a => (a.value !== undefined ? String(a.value) : a.description || a.type))
         .join(' ')
+      const child = sessionId && sessionId !== this.sessionId
       this.consoleEntries.push({
         source: 'console',
         level: params.type,
-        text: String(text).slice(0, 2000),
-        url: params.stackTrace && params.stackTrace.callFrames && params.stackTrace.callFrames[0]
+        text: redactSensitiveValues(String(text).slice(0, 2000), this.sensitiveValues),
+        url: !child && params.stackTrace && params.stackTrace.callFrames && params.stackTrace.callFrames[0]
           ? params.stackTrace.callFrames[0].url
           : null,
         line: params.stackTrace && params.stackTrace.callFrames && params.stackTrace.callFrames[0]
           ? params.stackTrace.callFrames[0].lineNumber
           : null,
       })
-    })
+    }, { includeChildSessions: true })
 
-    on('Runtime.exceptionThrown', params => {
+    on('Runtime.exceptionThrown', (params, sessionId) => {
       const details = params.exceptionDetails || {}
+      const child = sessionId && sessionId !== this.sessionId
       this.consoleEntries.push({
         source: 'exception',
         level: 'error',
-        text: String(describeException(details)).slice(0, 2000),
-        url: details.url || null,
+        text: redactSensitiveValues(String(describeException(details)).slice(0, 2000), this.sensitiveValues),
+        url: child ? null : details.url || null,
         line: details.lineNumber != null ? details.lineNumber : null,
       })
-    })
+    }, { includeChildSessions: true })
 
-    on('Log.entryAdded', params => {
+    on('Log.entryAdded', (params, sessionId) => {
       const entry = params.entry || {}
+      const child = sessionId && sessionId !== this.sessionId
       this.consoleEntries.push({
         source: 'log',
         level: entry.level || 'info',
-        text: String(entry.text || '').slice(0, 2000),
-        url: entry.url || null,
+        text: redactSensitiveValues(String(entry.text || '').slice(0, 2000), this.sensitiveValues),
+        url: child ? null : entry.url || null,
         line: entry.lineNumber != null ? entry.lineNumber : null,
       })
-    })
+    }, { includeChildSessions: true })
 
     on('Network.requestWillBeSent', params => {
       const request = params.request || {}

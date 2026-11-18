@@ -16,6 +16,7 @@ import { launchChrome, CDPConnection } from './cdp.js'
 import { Page } from './page.js'
 import { runScenarios } from './runner.js'
 import { Mailbox } from './lib/mailbox.js'
+import { attachedChildSessionId } from './lib/frames.js'
 import { BASE_URL, HEART } from './config.js'
 
 import s1Contact from './scenarios/s1-contact.js'
@@ -99,15 +100,34 @@ async function main() {
       waitForDebuggerOnStart: true,
       flatten: true,
     })
+    // The browser-level auto-attach catches new browser pages. The page-scoped
+    // call is what attaches OOPIF children (PayPal's card fields) to this
+    // page, which is where the flattened child session id comes from.
+    await page.send('Target.setAutoAttach', {
+      autoAttach: true,
+      waitForDebuggerOnStart: true,
+      flatten: true,
+    })
     connection.on('Target.attachedToTarget', async (params, sessionId) => {
       const info = params.targetInfo || {}
       if (info.targetId === targetId) return
+      // In flattened mode the child session id travels inside the event params.
+      const childSessionId = attachedChildSessionId(params, sessionId)
+      // Keep every child session and its target metadata. Cross-origin card
+      // fields are driven in the session that owns the frame.
+      page.trackChildSession(childSessionId, info)
       if (info.type === 'page' || info.type === 'webview') {
         try { await connection.send('Target.closeTarget', { targetId: info.targetId }) } catch { /* gone already */ }
       }
-      if (sessionId) {
-        try { await connection.send('Runtime.runIfWaitingForDebugger', {}, sessionId) } catch { /* gone already */ }
+      if (childSessionId) {
+        try {
+          await connection.send('Runtime.runIfWaitingForDebugger', {}, childSessionId)
+          await page.enableChildSession(childSessionId)
+        } catch { /* gone already */ }
       }
+    })
+    connection.on('Target.detachedFromTarget', params => {
+      page.removeChildSession(params && params.sessionId)
     })
 
     const context = {
