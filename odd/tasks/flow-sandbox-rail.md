@@ -99,6 +99,8 @@ the service plus its test, so it goes to one bounded writer.
 | 2026-11-18 | T4 done | A real sandbox order (`e0c94d56…`, 350 CLP) was paid with the sandbox card: the browser returned `?pago=approved&orden=…&monto=350#/wallet`, the signed webhook posted `POST /payments/webhook/flow` (200), and the wallet shows **450 credits** with the movement `PURCHASE_CREDIT 350`. |
 | 2026-11-18 | T6 done | The PayPal cancel landed on `https://metaigym88.djlabs.cl/?orden=…&pago=cancelled#/wallet` — before the fix it landed on `https://api.djlabs.cl/login?order=…&token=…`. API commit `4e580a5` (return/cancel URLs resolve the heart's front, never the API origin); front commit `426f2cc` (the front reads `?pago=` and reports the canceled kind). |
 | 2026-11-18 | Front published | `4914ee8` + `426f2cc` pushed to `origin/main` and to the feature branch |
+| 2026-11-18 | API money-path hardening | API commit `73f59b1`: a provider token that matches MORE THAN ONE order now resolves no order (fail closed) instead of crediting an arbitrary wallet. The normal path is unchanged; the log records only how many orders matched, never the token or buyer data. Test: `tests/payment_webhook_token_ambiguity_test.php` (13 asserts). |
+| 2026-11-18 | Test drift fixed | API commit `93a0604`: the recharge limits in the tests come from the configuration and the voucher test is hermetic (local mock Flow, no network, no credentials). |
 
 ## Next step
 
@@ -112,6 +114,6 @@ pair goes back when the owner says so.
 | --- | --- |
 | PayPal sandbox says `card payments are not eligible`: the USD card rail needs the merchant enabled for ACDC (Card Fields). The hosted fallback works and its cancel now returns to the app. | Owner (PayPal dashboard) |
 | The Flow sandbox secret was pasted in chat: rotate it before the sandbox account is shared. | Owner |
-| `tests/t16_voucher_test.php` still hits the live gateway and fails on the throwaway buyer's email; `tests/payment_flow_test.php` hardcodes a 1,000 CLP minimum that the live config no longer has. | Test drift, tracked separately |
+| `tests/t16_voucher_test.php` and `tests/payment_flow_test.php` were drifting from the live configuration (a hardcoded 1,000 CLP minimum, and a test that hit the real gateway). Fixed in API commit `93a0604`: the limits now come from the configuration and the voucher test runs against the local mock Flow. | Done |
 | Live PayPal credentials, the `WH-…` webhook id and ACDC approval for the live account. | Owner |
 
