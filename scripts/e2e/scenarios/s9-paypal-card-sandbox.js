@@ -56,6 +56,9 @@ export default {
     const scenarioMark = page.mark()
     const evidence = []
     const fixture = readFixture()
+    context.sensitiveValues = [
+      ...new Set([...(context.sensitiveValues || []), ...Object.values(fixture)]),
+    ]
     const screenshotSecrets = [
       context.email,
       context.email ? String(context.email).split('@')[0] : null,

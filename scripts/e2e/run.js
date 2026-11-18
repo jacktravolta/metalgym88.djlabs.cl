@@ -148,6 +148,7 @@ async function main() {
       mailboxError: null,
       mailboxKind: null,
       reportAccount: null,
+      sensitiveValues: [],
       sentAt: null,
     }
 
@@ -163,6 +164,7 @@ async function main() {
         context.email = pinned.address
         context.mailboxKind = 'pinned'
         context.reportAccount = 'pinned mailbox (redacted)'
+        context.sensitiveValues = [pinned.address, pinned.password]
         console.log('Pinned inbox: configured')
       } else {
         context.mailbox = await Mailbox.create()

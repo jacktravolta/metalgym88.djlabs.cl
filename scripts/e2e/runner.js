@@ -149,7 +149,7 @@ export async function writeReports({ results, summary, context, outDir, baseUrl 
     account: context.reportAccount || null,
     summary,
     scenarios: results,
-  })
+  }, context.sensitiveValues || [])
   await writeFile(join(outDir, 'report.json'), `${JSON.stringify(safe, null, 2)}\n`)
 
   const lines = []

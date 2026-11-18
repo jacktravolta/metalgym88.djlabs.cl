@@ -35,13 +35,24 @@ export function redact(input) {
   return text
 }
 
+/** Removes exact known sensitive values from a single string. */
+export function redactKnownValues(input, values = []) {
+  let text = String(input == null ? '' : input)
+  const secrets = values
+    .map(value => String(value == null ? '' : value))
+    .filter(Boolean)
+    .sort((left, right) => right.length - left.length)
+  for (const secret of secrets) text = text.split(secret).join('REDACTED')
+  return text
+}
+
 /** Redacts every string inside a JSON-like structure (in place is avoided). */
-export function redactValue(value) {
-  if (typeof value === 'string') return redact(value)
-  if (Array.isArray(value)) return value.map(redactValue)
+export function redactValue(value, sensitiveValues = []) {
+  if (typeof value === 'string') return redactKnownValues(redact(value), sensitiveValues)
+  if (Array.isArray(value)) return value.map(item => redactValue(item, sensitiveValues))
   if (value && typeof value === 'object') {
     const out = {}
-    for (const [key, item] of Object.entries(value)) out[key] = redactValue(item)
+    for (const [key, item] of Object.entries(value)) out[key] = redactValue(item, sensitiveValues)
     return out
   }
   return value
