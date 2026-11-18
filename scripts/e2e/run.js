@@ -28,8 +28,9 @@ import s5Topup from './scenarios/s5-topup.js'
 import s6Navigation from './scenarios/s6-navigation.js'
 import s7Legal from './scenarios/s7-legal-pages.js'
 import s8CreditBurn from './scenarios/s8-credit-burn.js'
+import s9PaypalCardSandbox from './scenarios/s9-paypal-card-sandbox.js'
 
-const ALL = [s1Contact, s2Register, s2bVerify, s3Login, s4Recovery, s5Topup, s6Navigation, s7Legal, s8CreditBurn]
+const ALL = [s1Contact, s2Register, s2bVerify, s3Login, s4Recovery, s5Topup, s6Navigation, s7Legal, s8CreditBurn, s9PaypalCardSandbox]
 
 const OUT_DIR = resolve(process.env.E2E_OUT || join(process.cwd(), 'artifacts', 'e2e'))
 const SCREENSHOT_DIR = join(OUT_DIR, 'screenshots')
@@ -91,6 +92,10 @@ async function main() {
       screenshotDir: SCREENSHOT_DIR,
     })
     await page.enable()
+    // The deployed service worker currently fails some asset clones and can
+    // leave the app document blank. The suite tests the app and the API, not
+    // the worker's cache implementation, so it talks to the network directly.
+    await page.send('Network.setBypassServiceWorker', { bypass: true })
 
     // Safety net: a popup (the payment gateway tab, for instance) is paused
     // before it can navigate and then closed, so no stray tab can approve a

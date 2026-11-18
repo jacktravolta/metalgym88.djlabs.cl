@@ -87,6 +87,18 @@ export async function signOutThroughUi(page) {
   return logout
 }
 
+/** Waits for the first visible copy from a small list of locale variants. */
+async function firstVisibleText(page, texts, timeoutMs) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    for (const text of texts) {
+      if (await page.waitForText(text, 100)) return text
+    }
+    await new Promise(resolve => setTimeout(resolve, 50))
+  }
+  return null
+}
+
 /**
  * Makes sure the browser holds a live session, signing in through the app's
  * own gate when it does not.
@@ -95,13 +107,33 @@ export async function ensureSignedIn(page, context) {
   await openApp(page, '/home')
   const existing = await page.waitForAriaLabel('créditos', 8000)
   if (existing) return { balance: existing, signedIn: true }
-  await page.expectText(TEXT.emailLinkInstead, 20000)
-  await page.clickText(TEXT.emailLinkInstead)
-  await page.expectText(TEXT.magicLinkTitle, 15000)
-  await page.fill(TEXT.appEmail, context.email)
-  await page.checkByText(TEXT.terms)
+  // The locale chunk can load late (or fail independently). The English copy
+  // is the same app control, so a delayed translation must not hide the gate.
+  const linkAlternative = await firstVisibleText(page, [
+    TEXT.emailLinkInstead,
+    'Email me a sign-in link instead',
+  ], 20000)
+  if (!linkAlternative) {
+    throw new StepTimeout('the sign-in gate never showed its email-link option', {
+      pageText: await page.bodyText().catch(() => ''),
+    })
+  }
+  await page.clickText(linkAlternative)
+  const magicTitle = await firstVisibleText(page, [
+    TEXT.magicLinkTitle,
+    'Sign-in link by email',
+  ], 15000)
+  if (!magicTitle) throw new StepTimeout('the magic-link form never showed its heading')
+  const emailField = await firstVisibleText(page, [TEXT.appEmail, 'Email'], 10000)
+  if (!emailField) throw new StepTimeout('the magic-link form never showed its email field')
+  await page.fill(emailField, context.email)
+  const terms = await firstVisibleText(page, [TEXT.terms, 'I accept the Terms and Conditions'], 10000)
+  if (!terms) throw new StepTimeout('the magic-link form never showed its terms consent')
+  await page.checkByText(terms)
   context.sentAt = new Date().toISOString()
-  await page.clickText(TEXT.sendLink)
+  const sendLink = await firstVisibleText(page, [TEXT.sendLink, 'Send the link'], 10000)
+  if (!sendLink) throw new StepTimeout('the magic-link form never showed its send button')
+  await page.clickText(sendLink)
   const request = await page.waitForRequest(r => r.method === 'POST' && r.path === '/auth/magic-link', 20000)
   // The platform has to answer BEFORE a mail can be expected: waiting for a
   // mail that was never requested would only hide the real cause.
