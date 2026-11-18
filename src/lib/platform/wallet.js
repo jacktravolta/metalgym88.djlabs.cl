@@ -537,6 +537,63 @@ export function statusKind(status) {
   return STATUS_KINDS[String(status || '').toUpperCase()] || 'pending'
 }
 
+// The gateway redirect is the first place where a cancellation is visible; the
+// voucher can still be pending until the provider webhook arrives. Only the states
+// in the platform contract have an opinion here, so an unknown value leaves the
+// voucher in charge.
+const RETURN_STATES = new Set([
+  'APPROVED',
+  'REJECTED',
+  'CANCELED',
+  'CANCELLED',
+  'PENDING',
+  'PENDING_REVIEW',
+])
+
+function returnParam(source, name) {
+  const search = typeof source === 'string'
+    ? source
+    : source && typeof source.search === 'string'
+      ? source.search
+      : ''
+  try {
+    return new URLSearchParams(search).get(name)
+  } catch {
+    return null
+  }
+}
+
+// Reads ?pago= from a query string or a location-like value. Unknown and missing
+// states return null, meaning that this helper has no opinion about the outcome.
+export function topUpReturnKind(source = '') {
+  const state = String(returnParam(source, 'pago') || '').trim().toUpperCase()
+  return RETURN_STATES.has(state) ? STATUS_KINDS[state] : null
+}
+
+function topUpReturnOrderId(source = '') {
+  const orderId = String(returnParam(source, 'orden') || '').trim()
+  return orderId || null
+}
+
+// Removes only the gateway return markers. The route, its fragment and unrelated
+// query parameters stay exactly where the person expects them.
+function clearTopUpReturnParams() {
+  try {
+    if (typeof window === 'undefined') return
+    const location = window.location
+    const history = window.history
+    if (!location || !history || typeof history.replaceState !== 'function') return
+    const params = new URLSearchParams(String(location.search || ''))
+    if (!params.has('pago') && !params.has('orden')) return
+    params.delete('pago')
+    params.delete('orden')
+    const query = params.toString()
+    const pathname = String(location.pathname || '')
+    const hash = String(location.hash || '')
+    history.replaceState(history.state ?? null, '', pathname + (query ? '?' + query : '') + hash)
+  } catch { /* no history (tests, exotic webviews): nothing to clean */ }
+}
+
 // Reads the breadcrumb, asks the platform how that order ended, and — only when it
 // got an answer — consumes the record so the same result never speaks twice. A failed
 // lookup keeps the record: it will be tried again on the next boot until the TTL ends it.
@@ -550,15 +607,19 @@ export function checkReturnedTopUp() {
 }
 
 async function checkReturnedTopUpOnce() {
+  const location = typeof window !== 'undefined' ? window.location : null
+  const returnKind = topUpReturnKind(location)
   const rec = readTopupRecord()
-  if (!rec) return null
+  const orderId = (rec && rec.order_id) || topUpReturnOrderId(location)
+  if (!orderId) return null
   let v
   try {
-    v = await phttp(withHeartQuery('/payments/orders/' + encodeURIComponent(rec.order_id) + '/voucher'), {})
+    v = await phttp(withHeartQuery('/payments/orders/' + encodeURIComponent(orderId) + '/voucher'), {})
   } catch (e) {
     return null
   }
   clearTopupRecord()
+  clearTopUpReturnParams()
   const status = orderStatus(v)
-  return { orderId: rec.order_id, voucher: v, status, kind: statusKind(status) }
+  return { orderId, voucher: v, status, kind: returnKind || statusKind(status) }
 }

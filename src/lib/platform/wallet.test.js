@@ -6,8 +6,8 @@ import {
   normalizeMovements, fetchMovements, movementDirection, movementLabel, groupMovements,
   normalizeTariffs, fetchTariffs, tariffLabel,
   createOrder, createCardOrder, extractCardToken, loadPaypalSdk, goToPayment,
-  saveTopupRecord, readTopupRecord, clearTopupRecord, TOPUP_RECORD_KEY,
-  orderStatus, statusKind, checkReturnedTopUp,
+  saveTopupRecord, readTopupRecord, clearTopupRecord, TOPUP_RECORD_KEY, TOPUP_TTL_MS,
+  orderStatus, statusKind, topUpReturnKind, checkReturnedTopUp,
 } from './wallet.js'
 
 const BASE = 'https://api.djlabs.cl'
@@ -615,7 +615,48 @@ describe('voucher status mapping', () => {
   })
 })
 
+describe('gateway return state', () => {
+  it('maps known gateway states to the existing status kinds', () => {
+    expect(topUpReturnKind('?pago=approved')).toBe('approved')
+    expect(topUpReturnKind('?pago=rejected')).toBe('rejected')
+    expect(topUpReturnKind('?pago=cancelled')).toBe('canceled')
+    expect(topUpReturnKind('?pago=canceled')).toBe('canceled')
+    expect(topUpReturnKind('?pago=pending')).toBe('pending')
+    expect(topUpReturnKind('?pago=pending_review')).toBe('pending_review')
+    expect(topUpReturnKind({ search: '?pago=approved' })).toBe('approved')
+  })
+
+  it('has no opinion about a missing or unknown gateway state', () => {
+    expect(topUpReturnKind('')).toBe(null)
+    expect(topUpReturnKind('?pago=unknown')).toBe(null)
+    expect(topUpReturnKind('?pago=surprise')).toBe(null)
+  })
+})
+
 describe('checkReturnedTopUp', () => {
+  const installStore = () => {
+    const store = new Map()
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: {
+        getItem: k => (store.has(k) ? store.get(k) : null),
+        setItem: (k, v) => { store.set(k, String(v)) },
+        removeItem: k => { store.delete(k) },
+      },
+      configurable: true
+    })
+    store.clear()
+    return store
+  }
+
+  const stubBrowserUrl = (search, hash = '#/wallet') => {
+    const replaceState = vi.fn()
+    vi.stubGlobal('window', {
+      location: { pathname: '/', search, hash },
+      history: { replaceState, state: null },
+    })
+    return replaceState
+  }
+
   it('asks the voucher endpoint for the recorded order and consumes the record once', async () => {
     const store = new Map()
     Object.defineProperty(globalThis, 'localStorage', {
@@ -633,6 +674,94 @@ describe('checkReturnedTopUp', () => {
     expect(m.seen[0].url).toBe(BASE + '/payments/orders/o-42/voucher?heart=metalgym88')
     expect(got).toEqual({ orderId: 'o-42', voucher: { status: 'APPROVED' }, status: 'APPROVED', kind: 'approved' })
     expect(store.has(TOPUP_RECORD_KEY)).toBe(false) // spoken once, then gone
+  })
+
+  it('uses the gateway cancel state instead of a still-pending voucher', async () => {
+    installStore()
+    saveTopupRecord('o-42', Date.now())
+    stubBrowserUrl('?pago=cancelled&orden=o-42')
+    const m = mockFetch([res(200, { status: 'PENDING' })])
+    vi.stubGlobal('fetch', m.impl)
+
+    const got = await checkReturnedTopUp()
+
+    expect(got).toEqual({
+      orderId: 'o-42',
+      voucher: { status: 'PENDING' },
+      status: 'PENDING',
+      kind: 'canceled',
+    })
+  })
+
+  it('uses the gateway approved state instead of the voucher status', async () => {
+    installStore()
+    saveTopupRecord('o-42', Date.now())
+    stubBrowserUrl('?pago=approved&orden=o-42')
+    const m = mockFetch([res(200, { status: 'PENDING' })])
+    vi.stubGlobal('fetch', m.impl)
+
+    const got = await checkReturnedTopUp()
+
+    expect(got.kind).toBe('approved')
+  })
+
+  it('lets the voucher decide when the gateway state is unknown', async () => {
+    installStore()
+    saveTopupRecord('o-42', Date.now())
+    stubBrowserUrl('?pago=surprise&orden=o-42')
+    const m = mockFetch([res(200, { status: 'REJECTED' })])
+    vi.stubGlobal('fetch', m.impl)
+
+    const got = await checkReturnedTopUp()
+
+    expect(got.kind).toBe('rejected')
+  })
+
+  it('still speaks from the order in the URL when the breadcrumb is missing', async () => {
+    installStore()
+    stubBrowserUrl('?orden=o-from-url')
+    const m = mockFetch([res(200, { status: 'APPROVED' })])
+    vi.stubGlobal('fetch', m.impl)
+
+    const got = await checkReturnedTopUp()
+
+    expect(m.seen[0].url).toBe(BASE + '/payments/orders/o-from-url/voucher?heart=metalgym88')
+    expect(got).toEqual({
+      orderId: 'o-from-url',
+      voucher: { status: 'APPROVED' },
+      status: 'APPROVED',
+      kind: 'approved',
+    })
+  })
+
+  it('falls back to the URL order when the breadcrumb has expired', async () => {
+    const store = installStore()
+    saveTopupRecord('expired-order', Date.now() - TOPUP_TTL_MS - 1)
+    stubBrowserUrl('?orden=o-from-url')
+    const m = mockFetch([res(200, { status: 'APPROVED' })])
+    vi.stubGlobal('fetch', m.impl)
+
+    const got = await checkReturnedTopUp()
+
+    expect(got.orderId).toBe('o-from-url')
+    expect(store.has(TOPUP_RECORD_KEY)).toBe(false)
+  })
+
+  it('removes the gateway return params after the result is ready', async () => {
+    installStore()
+    saveTopupRecord('o-42', Date.now())
+    const replaceState = stubBrowserUrl('?pago=cancelled&orden=o-42&keep=yes')
+    const m = mockFetch([res(200, { status: 'PENDING' })])
+    vi.stubGlobal('fetch', m.impl)
+
+    await checkReturnedTopUp()
+
+    expect(replaceState).toHaveBeenCalledTimes(1)
+    const cleanedUrl = replaceState.mock.calls[0][2]
+    expect(cleanedUrl).not.toContain('pago=')
+    expect(cleanedUrl).not.toContain('orden=')
+    expect(cleanedUrl).toContain('keep=yes')
+    expect(cleanedUrl).toContain('#/wallet')
   })
 
   it('returns null when there is no record', async () => {
