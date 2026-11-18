@@ -146,7 +146,7 @@ export async function writeReports({ results, summary, context, outDir, baseUrl 
     baseUrl,
     heart: context.heart,
     chrome: context.chromeVersion || null,
-    account: context.email || null,
+    account: context.reportAccount || null,
     summary,
     scenarios: results,
   })
@@ -159,7 +159,7 @@ export async function writeReports({ results, summary, context, outDir, baseUrl 
   lines.push(`- Heart: \`${context.heart}\``)
   lines.push(`- Generated: ${new Date().toISOString()}`)
   lines.push(`- Chrome: ${context.chromeVersion || 'unknown'}`)
-  lines.push(`- Account under test: \`${context.email || 'n/a'}\``)
+  lines.push(`- Account under test: \`${context.reportAccount || 'n/a'}\``)
   lines.push('')
   lines.push(`**${summary.pass} PASS · ${summary.fail} FAIL · ${summary.blocked} BLOCKED**`)
   lines.push('')

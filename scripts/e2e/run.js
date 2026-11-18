@@ -121,16 +121,31 @@ async function main() {
       email: null,
       mailbox: null,
       mailboxError: null,
+      mailboxKind: null,
+      reportAccount: null,
       sentAt: null,
     }
 
-    // The disposable inbox the magic-link scenarios read. If mail.tm is down
-    // the suite still runs: the scenarios that need it report BLOCKED with the
-    // exact error instead of pretending.
+    // A pinned mailbox gives the suite a stable identity (required by the
+    // sandbox allowlist). Without the variables, the historical random inbox
+    // is created exactly as before. The pinned address is never logged or
+    // written to a report.
     try {
-      context.mailbox = await Mailbox.create()
-      context.email = context.mailbox.address
-      console.log(`Disposable inbox: ${context.email}`)
+      const pinned = Mailbox.fromEnvironment()
+      if (pinned) {
+        await pinned.authenticate()
+        context.mailbox = pinned
+        context.email = pinned.address
+        context.mailboxKind = 'pinned'
+        context.reportAccount = 'pinned mailbox (redacted)'
+        console.log('Pinned inbox: configured')
+      } else {
+        context.mailbox = await Mailbox.create()
+        context.email = context.mailbox.address
+        context.mailboxKind = 'disposable'
+        context.reportAccount = context.email
+        console.log(`Disposable inbox: ${context.email}`)
+      }
     } catch (e) {
       context.mailboxError = e && e.message ? e.message : String(e)
       context.email = 'harness-e2e@fldubai.com'

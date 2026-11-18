@@ -33,6 +33,23 @@ export class Mailbox {
     return active.domain
   }
 
+  /**
+   * Uses the pinned mailbox configured for a stable identity.
+   *
+   * Returns null when neither variable is set, so the suite keeps its random
+   * per-run inbox. When only one half is configured the error names the
+   * variables but never their values.
+   */
+  static fromEnvironment(env = process.env) {
+    const address = String(env.E2E_MAIL_ADDRESS || '').trim()
+    const password = String(env.E2E_MAIL_PASSWORD || '')
+    if (!address && !password) return null
+    if (!address || !password) {
+      throw new Error('E2E_MAIL_ADDRESS and E2E_MAIL_PASSWORD must be set together')
+    }
+    return new Mailbox({ address, password })
+  }
+
   /** Creates a fresh inbox. Throws with the exact API answer when it refuses. */
   static async create({ prefix = 'mg88e2e', domain = null } = {}) {
     const host = domain || (await Mailbox.domain())
