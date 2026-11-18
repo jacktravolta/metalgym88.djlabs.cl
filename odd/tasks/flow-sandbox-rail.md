@@ -48,21 +48,23 @@ which is exactly the trust this product is built on.
   pair is backed up outside the repo.
 - [x] **T2 — Offer only payable amounts.** `min_clp = 350`; the CLP packs start
   at 350 CLP; the free amount field is removed from the wallet and the locale.
-- [ ] **T3 — Report a canceled payment honestly.** `PaymentService::getVoucher()`
+- [x] **T3 — Report a canceled payment honestly.** `PaymentService::getVoucher()`
   reads Flow's status for a pending order and maps 3 → REJECTED, 4 → CANCELED.
-- [ ] **T4 — Complete one sandbox payment end to end.** Sandbox order → sandbox
+- [x] **T4 — Complete one sandbox payment end to end.** Sandbox order → sandbox
   checkout → approved → credits in the balance (webhook path).
-- [ ] **T5 — Publish the front change.**
+- [x] **T5 — Publish the front change.**
+- [x] **T6 — PayPal cancel returns to the app.** The PayPal `cancel_url` points
+  at the heart's wallet with `pago=cancelled`, and the front honors that state.
 
 ## Acceptance criteria
 
-- [ ] Every CLP amount the wallet offers can open the Flow payment page.
-- [ ] The wallet offers no amount the gateway rejects.
-- [ ] A canceled Flow payment never shows a "registered recharge" message and
+- [x] Every CLP amount the wallet offers can open the Flow payment page.
+- [x] The wallet offers no amount the gateway rejects.
+- [x] A canceled Flow payment never shows a "registered recharge" message and
       never credits the wallet.
-- [ ] A canceled Flow payment tells the person what happened and what they can
+- [x] A canceled Flow payment tells the person what happened and what they can
       do next, in the platform's calm, non-blaming tone.
-- [ ] No production credential is left in the live config while the sandbox is
+- [x] No production credential is left in the live config while the sandbox is
       under test.
 
 ## Applicable checks
@@ -70,10 +72,15 @@ which is exactly the trust this product is built on.
 | Check | Command | Result |
 | --- | --- | --- |
 | Front unit tests | `npx vitest run src/lib/platform/wallet.test.js src/lib/locales.test.js` | 51 passed |
-| Front build | `npm run build` | built in 1.79s |
+| Front full suite | `npx vitest run` | 36 files, 521 tests passed |
+| Front build | `npm run build` | built in 2.32s |
 | Sandbox order | `POST /payments/orders` (amount_clp 350) | HTTP 200, `sandbox.flow.cl/app/web/pay.php?token=…` |
-| API voucher test | `php tests/<cancel-voucher>_test.php` | pending (T3) |
-| Sandbox payment | sandbox checkout with the test card | pending (T4) |
+| Sandbox payment | headless Chrome on the sandbox checkout | `pago=approved&orden=…&monto=350` back on the front |
+| Credit path | `GET /credits/balance?heart=metalgym88` | **450** (100 welcome + 350 purchased), movement `PURCHASE_CREDIT` 350 |
+| API voucher test | `php tests/payment_voucher_flow_status_test.php` | exit 0 — 11 assertions, 0 failures |
+| PayPal cancel (browser) | headless Chrome on the sandbox approval page | lands on `metaigym88.djlabs.cl/?orden=…&pago=cancelled#/wallet` |
+| PayPal provider test | `php tests/paypal_provider_test.php` | exit 0 — 37 assertions, 0 failures |
+
 
 ## Route
 
@@ -87,9 +94,24 @@ the service plus its test, so it goes to one bounded writer.
 | --- | --- | --- |
 | 2026-11-17 | T1 done | `flow.base_url = https://sandbox.flow.cl/api`, sandbox secret length 40, production pair saved to `/home/test/.config/metalgym88-e2e/flow-production.env` (600) |
 | 2026-11-17 | Root cause of "Invalid Signature" | The provider signs in **hex** (`hash_hmac` without `$binary`), not base64. A control signed with the production pair returns HTTP 200 + token; the transcribed sandbox secret was missing one character (`…bccbf72d461…`). |
-| 2026-11-17 | T2 done | Front commit below; `npx vitest run` 51 passed, `npm run build` ok |
-| 2026-11-18 | Front commit | _pending_ |
+| 2026-11-17 | T2 done | Front commit `4914ee8`; `npx vitest run` 51 passed, `npm run build` ok |
+| 2026-11-18 | T3 done | API commit `fc8e7b3`: a pending Flow voucher read now asks the gateway, persists CANCELED/REJECTED, surfaces APPROVED WITHOUT crediting, and falls back to pending when the gateway is unreachable (3s bound). Hermetic test: 11 assertions, 0 failures. |
+| 2026-11-18 | T4 done | A real sandbox order (`e0c94d56…`, 350 CLP) was paid with the sandbox card: the browser returned `?pago=approved&orden=…&monto=350#/wallet`, the signed webhook posted `POST /payments/webhook/flow` (200), and the wallet shows **450 credits** with the movement `PURCHASE_CREDIT 350`. |
+| 2026-11-18 | T6 done | The PayPal cancel landed on `https://metaigym88.djlabs.cl/?orden=…&pago=cancelled#/wallet` — before the fix it landed on `https://api.djlabs.cl/login?order=…&token=…`. API commit `4e580a5` (return/cancel URLs resolve the heart's front, never the API origin); front commit `426f2cc` (the front reads `?pago=` and reports the canceled kind). |
+| 2026-11-18 | Front published | `4914ee8` + `426f2cc` pushed to `origin/main` and to the feature branch |
 
 ## Next step
 
-T3 — the API writer fixes `getVoucher()` and adds its test.
+Live PayPal stays off until the sandbox merchant is eligible for card payments
+(PayPal answered `card payments are not eligible`), and the production Flow
+pair goes back when the owner says so.
+
+## Known follow-ups
+
+| Item | Owner |
+| --- | --- |
+| PayPal sandbox says `card payments are not eligible`: the USD card rail needs the merchant enabled for ACDC (Card Fields). The hosted fallback works and its cancel now returns to the app. | Owner (PayPal dashboard) |
+| The Flow sandbox secret was pasted in chat: rotate it before the sandbox account is shared. | Owner |
+| `tests/t16_voucher_test.php` still hits the live gateway and fails on the throwaway buyer's email; `tests/payment_flow_test.php` hardcodes a 1,000 CLP minimum that the live config no longer has. | Test drift, tracked separately |
+| Live PayPal credentials, the `WH-…` webhook id and ACDC approval for the live account. | Owner |
+
