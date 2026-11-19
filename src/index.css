@@ -703,20 +703,31 @@ h4.sec{
 }
 
 /* ---------------------------------------------------------------- modal -- */
-#modal-root{position:fixed;inset:0;z-index:100;display:none}
+#modal-root{position:fixed;inset:0;z-index:100;display:none;isolation:isolate}
 #modal-root.open{display:block}
 .mback{
-  position:absolute;inset:0;background:rgba(0,0,0,.4);
-  backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);
+  position:absolute;inset:0;background:rgba(0,0,0,.48);
   touch-action:none;overscroll-behavior:none;
 }
-.sheet{
-  position:absolute;left:0;right:0;bottom:0;background:var(--bg-el);
+/* The sheet is TWO elements, and the split is load-bearing.
+   `sheet-wrap` is the painted surface: the opaque background, the radius and the
+   swipe transform. `sheet` inside it is only the scroller. When both jobs lived in
+   one element, Chrome promoted the scrolling layer and could skip painting its
+   background — the page behind showed through the middle of the sheet (seen on a
+   live wallet, and once before on the coach stage). Keeping the surface out of the
+   scrolling layer makes that failure impossible: at worst the scroller's own
+   content is late, never the ground under it. */
+.sheet-wrap{
+  position:absolute;left:0;right:0;bottom:0;
+  background:var(--bg-el);
   border-radius:var(--r-xl) var(--r-xl) 0 0;
-  padding:8px 18px calc(20px + var(--sab));
-  max-height:90vh;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  max-height:90vh;overflow:hidden;
   animation:sheetup .34s var(--ease);
-  overscroll-behavior:contain;touch-action:pan-y;will-change:transform;
+}
+.sheet{
+  max-height:90vh;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  padding:8px 18px calc(20px + var(--sab));
+  overscroll-behavior:contain;touch-action:pan-y;
 }
 /* Thin, neutral scrollbars for the long scrolling surfaces. The hover tone is
    driven by the same theme tokens, so the treatment works in both themes. */
@@ -733,7 +744,7 @@ h4.sec{
 .sheet::-webkit-scrollbar-thumb,.coach-scroll::-webkit-scrollbar-thumb{
   background:var(--scrollbar-thumb);border-radius:99px;
 }
-:root[data-theme="light"] .sheet{background:var(--bg)}
+:root[data-theme="light"] .sheet-wrap{background:var(--bg)}
 /* The coach's sheet: a solid stage, not an elevated grey. Over a chat full of
    bubbles the default sheet colour read as translucent — the app behind seemed
    to show through and the conversation lost its ground. */
@@ -1077,7 +1088,7 @@ body.resting #coach-fab{bottom:calc(200px + var(--sab))}
   /* The sheet grows with the content column but never past 820px. The margin is
      exactly half of the fluid width: -410px at the maximum, then 140px - 50vw
      when the viewport constrains the sheet. */
-  .sheet{
+  .sheet-wrap{
     left:calc(50% + 124px);right:auto;
     margin-left:max(-410px,calc(140px - 50vw));
     width:min(820px,calc(100vw - 280px));
