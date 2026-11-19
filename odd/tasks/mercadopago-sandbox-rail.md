@@ -52,7 +52,11 @@ server-minted token is not a valid rehearsal of the production path.
 ## 3. Preconditions
 
 - [ ] Backend deployed with the MP adapter, the route `POST /payments/webhook/mercadopago`
-      and `payments.provider = 'mercadopago'`, `payments.default_currency = 'CLP'`.
+      and the rail configured **for this product**:
+      `payments.rails_by_heart = ['metalgym88' => ['CLP' => 'mercadopago', 'USD' => 'paypal']]`,
+      with `payments.default_currency = 'CLP'`. The installation-wide default stays `flow`;
+      setting `payments.provider = 'mercadopago'` makes every heart's CLP default to
+      Mercado Pago instead. ATSCV keeps the offline rail.
 - [ ] Front deployed with the Brick, the CSP allowance for the Mercado Pago SDK and the
       legal consent checkbox.
 - [ ] `payments.mercadopago.public_key` + `access_token` set in the server config
@@ -144,3 +148,17 @@ credentials), `currency_id` (`CLP`), `transaction_amount`, `installments`,
 
 Only `approved` credits. `authorized`, `in_process`, `pending`, `rejected`, `refunded`,
 `cancelled` and `charged_back` never credit.
+
+## 8. Progress
+
+| Unit | Route | Evidence | Commit |
+|---|---|---|---|
+| Front — Mercado Pago card rail (Brick, gateway selector, IVA-inclusive total, Terms + Privacy consent, CSP allowance, legal pages naming the three providers) | delegated writer, committed here | `npx vitest run src/lib/platform/wallet.test.js` → 73/73; `npx vitest run` → 537/537 (36 files); `npm run build` → built in 2.06s | `786b7b8` (`feat(wallet): offer Mercado Pago as the card rail in the checkout`) |
+| Backend — MP adapter, webhook, card endpoint, legal primitives | delegated writer, in flight in `api-independent-worktrees/mercadopago-gateway` | pending | — |
+| Engram mirror (`odd/mercadopago-third-gateway/tasks`) | — | pending: the Engram server has refused writes since 2026-11-18 | — |
+
+## 9. Next step
+
+The backend adapter is the last piece of code. After it lands, the remaining work is
+operational, not development: the webhook secret, the test credential pair of the
+production app, and the journey in section 4 run through the Brick in a browser.
