@@ -209,6 +209,18 @@ export function availableProvidersForCurrency(currencyRow, quote) {
   return ['flow']
 }
 
+// The rail to name when the person chooses NOT to pay by card. Card rails
+// (Mercado Pago) never start from a redirect — their token is captured in the
+// form — so the fallback is the first advertised rail that is not a card one.
+// null means "say nothing": the server keeps its own default for that currency.
+export function alternativeRailProvider(currencyRow, quote) {
+  const candidate = availableProvidersForCurrency(currencyRow, quote).find(name => {
+    const normalized = stringOrNull(name)?.toLowerCase()
+    return !!normalized && normalized !== 'mercadopago' && normalized !== 'fake'
+  })
+  return candidate ? String(candidate).toLowerCase() : null
+}
+
 // A missing quote endpoint is expected while the API is being deployed. Every
 // failure is therefore quiet: null means "use the existing CLP-only recharge".
 export async function fetchQuote(options = {}) {
@@ -412,12 +424,17 @@ const newKey = () =>
 // it will pass documentType: 33 plus buyer fiscal fields in a later task.
 // CLP sends the chosen amount. USD sends only the server-owned variant: the
 // client never invents a price or a credits amount for a fixed-price option.
-export async function createOrder(amountClp, { currency = 'CLP', variantId, documentType = 46, genKey, legalConsent } = {}) {
+export async function createOrder(amountClp, { currency = 'CLP', variantId, documentType = 46, genKey, legalConsent, provider } = {}) {
   const key = genKey ? genKey() : newKey()
   const selectedCurrency = String(currency || 'CLP').toUpperCase()
   const body = selectedCurrency === 'USD'
     ? { currency: 'USD', variant_id: variantId, document_type: documentType }
     : { amount_clp: amountClp, currency: 'CLP', document_type: documentType }
+  // A rail the person chose explicitly travels with the order: the server then
+  // charges that one instead of the heart's default (the card rail, which a
+  // redirect checkout can never complete).
+  const namedProvider = stringOrNull(provider)?.toLowerCase()
+  if (namedProvider) body.provider = namedProvider
   const consent = normalizeLegalConsent(legalConsent)
   if (consent) body.legal_consent = consent
   const opts = {

@@ -4,7 +4,7 @@ import {
   normalizeLimits, fetchLimits, clampAmount,
   normalizeQuote, fetchQuote, formatMoney,
   usdPriceLabel, usdPacks, showsCustomAmount, normalizePaypalInfo,
-  normalizeMercadoPagoInfo, normalizeProviderKeys, normalizeIva, hasMercadoPagoRail,
+  normalizeMercadoPagoInfo, normalizeProviderKeys, normalizeIva, hasMercadoPagoRail, alternativeRailProvider,
   paymentProviderMethod, availableProvidersForCurrency, selectInitialCurrency,
   normalizeMovements, fetchMovements, movementDirection, movementLabel, groupMovements,
   normalizeTariffs, fetchTariffs, tariffLabel,
@@ -211,6 +211,17 @@ describe('payment quote', () => {
     expect(hasMercadoPagoRail(['flow', 'mercadopago'], null)).toBe(false)
     expect(hasMercadoPagoRail(['flow'], { publicKey: 'APP_USR-public-test' })).toBe(false)
     expect(hasMercadoPagoRail(['flow', 'mercadopago'], { publicKey: '  ' })).toBe(false)
+  })
+
+  it('falls back to the redirect rail the person can actually finish', () => {
+    const clp = { currency: 'CLP', providers: ['flow', 'mercadopago'] }
+    expect(alternativeRailProvider(clp, null)).toBe('flow')
+    // The card rail alone offers no redirect: say nothing and let the server answer.
+    expect(alternativeRailProvider({ currency: 'CLP', providers: ['mercadopago'] }, null)).toBe(null)
+    // The offline fake is never a rail a person can pay with.
+    expect(alternativeRailProvider({ currency: 'CLP', providers: ['fake'] }, null)).toBe(null)
+    expect(alternativeRailProvider({ currency: 'USD' }, { paypal: { clientId: 'sb-client' } })).toBe('paypal')
+    expect(alternativeRailProvider(null, null)).toBe(null)
   })
 
   it('keeps older quotes usable by deriving the legacy rail for each currency', () => {
@@ -525,6 +536,26 @@ describe('createOrder — provider-agnostic order creation', () => {
     expect(m.impl).toHaveBeenCalledTimes(1)
     expect(err.status).toBe(402)
     expect(err.code).toBe('TOPUP_DISABLED')
+  })
+
+  it('names the redirect rail the person chose instead of letting the server default answer', async () => {
+    const m = mockFetch([res(200, { redirect_url: 'https://pay/go' })])
+    vi.stubGlobal('fetch', m.impl)
+    await createOrder(5000, { genKey: () => 'RAIL-KEY', provider: 'flow' })
+    expect(JSON.parse(m.seen[0].opts.body)).toEqual({
+      amount_clp: 5000,
+      currency: 'CLP',
+      document_type: 46,
+      provider: 'flow',
+      heart: 'metalgym88',
+    })
+  })
+
+  it('never sends a provider when none was chosen', async () => {
+    const m = mockFetch([res(200, { redirect_url: 'https://pay/go' })])
+    vi.stubGlobal('fetch', m.impl)
+    await createOrder(5000, { genKey: () => 'NO-RAIL', provider: null })
+    expect(JSON.parse(m.seen[0].opts.body)).not.toHaveProperty('provider')
   })
 
   it('an idempotent replay the platform answers with the same order just succeeds', async () => {

@@ -28,7 +28,7 @@ import {
   fetchMovements, fetchTariffs, fetchLimits, fetchQuote, clampAmount, formatMoney,
   usdPriceLabel, usdPacks, showsCustomAmount, groupMovements,
   createOrder, createCardOrder, extractCardToken, normalizeMercadoPagoCardData,
-  hasMercadoPagoRail, loadPaypalSdk, loadMercadoPagoSdk, paymentOutcome, goToPayment,
+  hasMercadoPagoRail, alternativeRailProvider, loadPaypalSdk, loadMercadoPagoSdk, paymentOutcome, goToPayment,
   saveTopupRecord, checkReturnedTopUp,
 } from '../lib/platform/wallet.js'
 import Icon from './Icon.jsx'
@@ -358,6 +358,13 @@ function WalletPanel({ close }) {
       const clamped = clampAmount(amount, limits)
       if (!clamped) { setTopupErr(t('Choose an amount first — pick a pack or type one.')); return }
       orderAmount = clamped
+      // This is the redirect rail. Naming it keeps the server from resolving
+      // the heart's default, which may be the in-app card rail and cannot be
+      // paid from a redirect screen.
+      orderOptions = {
+        ...orderOptions,
+        provider: alternativeRailProvider(selectedOption, quote),
+      }
     } else {
       setTopupErr(t('No recharge options are available right now.'))
       return
