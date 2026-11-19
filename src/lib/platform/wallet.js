@@ -84,6 +84,63 @@ export function normalizePaypalInfo(raw) {
   return { clientId, environment: environment === 'live' ? 'live' : 'sandbox' }
 }
 
+// The quote carries the PUBLIC Mercado Pago key for the browser Brick. It is
+// never an environment variable in this bundle: the backend owns the key and
+// advertises it with the quote.
+export function normalizeMercadoPagoInfo(raw) {
+  if (!isObject(raw)) return null
+  const publicKey = stringOrNull(raw.public_key) || stringOrNull(raw.publicKey)
+  if (!publicKey) return null
+  const environment = stringOrNull(raw.environment)?.toLowerCase() || null
+  return { publicKey, environment }
+}
+
+// Provider methods belong to the client. The backend publishes provider keys
+// per currency; it deliberately does not declare whether each rail redirects
+// or renders fields in the browser.
+const PAYMENT_PROVIDER_METHODS = Object.freeze({
+  flow: 'redirect',
+  paypal: 'card',
+  mercadopago: 'card',
+})
+
+export function paymentProviderMethod(provider) {
+  return PAYMENT_PROVIDER_METHODS[stringOrNull(provider)?.toLowerCase()] || null
+}
+
+// Normalizes the provider keys advertised for one currency. Unknown or
+// malformed values are ignored: the wallet never invents an unsupported rail.
+export function normalizeProviderKeys(raw) {
+  if (!Array.isArray(raw)) return []
+  const seen = new Set()
+  return raw.map(value => {
+    if (typeof value !== 'string') return null
+    const key = value.trim().toLowerCase()
+    if (!key || !paymentProviderMethod(key) || seen.has(key)) return null
+    seen.add(key)
+    return key
+  }).filter(Boolean)
+}
+
+// The card rail is available only when both facts are present for the selected
+// currency: the backend advertises it and the quote carries the public key.
+export function hasMercadoPagoRail(providers, mercadopago) {
+  const advertised = Array.isArray(providers) && providers.includes('mercadopago')
+  const info = isObject(mercadopago) ? mercadopago : {}
+  const publicKey = stringOrNull(info.publicKey) || stringOrNull(info.public_key)
+  return advertised && !!publicKey
+}
+
+// The IVA breakdown is optional. A partial breakdown is treated as absent so
+// the UI never displays an incomplete tax calculation.
+export function normalizeIva(raw) {
+  if (!isObject(raw)) return null
+  const net = numberOrNull(raw.net)
+  const iva = numberOrNull(raw.iva)
+  const total = numberOrNull(raw.total)
+  return net == null || iva == null || total == null ? null : { net, iva, total }
+}
+
 function normalizeCurrency(raw) {
   if (!isObject(raw)) return null
   const currency = currencyCode(raw.currency) || currencyCode(raw.currency_code) || currencyCode(raw.code)
@@ -98,6 +155,9 @@ function normalizeCurrency(raw) {
     maxClp: numberOrNull(raw.max_clp) ?? numberOrNull(raw.max),
     presets: rawPresets.map(Number).filter(n => Number.isFinite(n) && n > 0).map(n => Math.round(n)),
     variants: rawVariants.map(normalizeVariant).filter(Boolean),
+    // null means the quote predates per-currency provider keys; [] means the
+    // backend explicitly advertised no available provider for this currency.
+    providers: Array.isArray(raw.providers) ? normalizeProviderKeys(raw.providers) : null,
   }
 }
 
@@ -113,20 +173,50 @@ export function normalizeQuote(data) {
   const currencies = rows.map(normalizeCurrency).filter(Boolean)
   if (!currencies.length) return null
   const detectedCurrency = currencyCode(source.detected_currency)
+  const paypal = normalizePaypalInfo(source.paypal)
+  const mercadopago = normalizeMercadoPagoInfo(source.mercadopago)
   return {
     detectedCountry: stringOrNull(source.detected_country)?.toUpperCase() || null,
     detectedCurrency,
-    defaultCurrency: currencyCode(source.default_currency) || detectedCurrency,
-    paypal: normalizePaypalInfo(source.paypal),
+    defaultCurrency: currencyCode(source.default_currency),
+    selectedProvider: stringOrNull(source.selected_provider)?.toLowerCase() || null,
+    paypal,
+    mercadopago,
+    iva: normalizeIva(source.iva),
     currencies,
   }
 }
 
+// The platform default currency is the only source for the initial selection.
+// detected_currency is just a hint and must never route a buyer away from the
+// rail the platform selected for everyone.
+export function selectInitialCurrency(quote) {
+  if (!isObject(quote) || !Array.isArray(quote.currencies)) return null
+  const available = quote.currencies.filter(currency => currency && currency.available)
+  return available.find(currency => currency.currency === quote.defaultCurrency) || available[0] || null
+}
+
+// Older quotes did not advertise providers per currency. Their previous wallet
+// behaviour remains: USD used PayPal when it was configured; every other
+// currency used the redirect rail.
+export function availableProvidersForCurrency(currencyRow, quote) {
+  if (!isObject(currencyRow)) return []
+  if (Array.isArray(currencyRow.providers)) return currencyRow.providers
+  if (currencyRow.currency === 'USD' && quote && quote.paypal) return ['paypal']
+  return ['flow']
+}
+
 // A missing quote endpoint is expected while the API is being deployed. Every
 // failure is therefore quiet: null means "use the existing CLP-only recharge".
-export async function fetchQuote() {
+export async function fetchQuote(options = {}) {
   try {
-    return normalizeQuote(await phttp(withHeartQuery('/payments/quote'), {}))
+    const provider = stringOrNull(options.provider)?.toLowerCase() || null
+    const currency = currencyCode(options.currency)
+    const query = new URLSearchParams()
+    if (provider) query.set('provider', provider)
+    if (currency) query.set('currency', currency)
+    const path = '/payments/quote' + (query.size ? '?' + query.toString() : '')
+    return normalizeQuote(await phttp(withHeartQuery(path), {}))
   } catch {
     return null
   }
@@ -307,6 +397,11 @@ export async function fetchTariffs(opts = {}) {
 
 /* ============================ order creation ============================ */
 
+function normalizeLegalConsent(value) {
+  if (!isObject(value)) return null
+  return { terms: value.terms === true, privacy: value.privacy === true }
+}
+
 const newKey = () =>
   (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : 'k-' + Date.now() + '-' + Math.random()
 
@@ -314,12 +409,14 @@ const newKey = () =>
 // it will pass documentType: 33 plus buyer fiscal fields in a later task.
 // CLP sends the chosen amount. USD sends only the server-owned variant: the
 // client never invents a price or a credits amount for a fixed-price option.
-export async function createOrder(amountClp, { currency = 'CLP', variantId, documentType = 46, genKey } = {}) {
+export async function createOrder(amountClp, { currency = 'CLP', variantId, documentType = 46, genKey, legalConsent } = {}) {
   const key = genKey ? genKey() : newKey()
   const selectedCurrency = String(currency || 'CLP').toUpperCase()
   const body = selectedCurrency === 'USD'
     ? { currency: 'USD', variant_id: variantId, document_type: documentType }
     : { amount_clp: amountClp, currency: 'CLP', document_type: documentType }
+  const consent = normalizeLegalConsent(legalConsent)
+  if (consent) body.legal_consent = consent
   const opts = {
     method: 'POST',
     headers: { 'Idempotency-Key': key },
@@ -359,7 +456,7 @@ export function goToPayment(url) {
   return true
 }
 
-/* ============================ PayPal card fields ============================ */
+/* ============================ card provider SDKs ============================ */
 
 // The hosted PayPal account page is not acceptable for the USD rail: the buyer
 // types the card inside this sheet. PayPal's JS SDK renders the fields and hands
@@ -419,6 +516,65 @@ export function loadPaypalSdk(paypal) {
   return load
 }
 
+/* ============================ Mercado Pago Brick ============================ */
+
+// The official Checkout Bricks SDK v2. The public key comes from the quote;
+// the script itself is the same for test and production credentials.
+const MERCADOPAGO_SDK_URL = 'https://sdk.mercadopago.com/js/v2'
+const mercadoPagoSdkLoads = new Map()
+
+export function mercadopagoSdkUrl(mercadopago) {
+  const info = isObject(mercadopago) ? mercadopago : {}
+  return stringOrNull(info.publicKey) ? MERCADOPAGO_SDK_URL : null
+}
+
+function mercadoPagoBuilder(publicKey) {
+  if (typeof window === 'undefined' || typeof window.MercadoPago !== 'function') return null
+  try {
+    const sdk = new window.MercadoPago(publicKey)
+    return sdk && typeof sdk.bricks === 'function' ? sdk.bricks() : null
+  } catch {
+    return null
+  }
+}
+
+// Loads the SDK lazily and once, then returns the documented Bricks builder.
+// A failed load resolves null so the wallet can keep the existing alternatives.
+export function loadMercadoPagoSdk(mercadopago) {
+  const info = isObject(mercadopago) ? mercadopago : {}
+  const publicKey = stringOrNull(info.publicKey)
+  const url = mercadopagoSdkUrl(info)
+  if (!url || !publicKey || typeof document === 'undefined') return Promise.resolve(null)
+
+  const ready = mercadoPagoBuilder(publicKey)
+  if (ready) return Promise.resolve(ready)
+  if (mercadoPagoSdkLoads.has(url)) return mercadoPagoSdkLoads.get(url)
+
+  const load = new Promise(resolve => {
+    let settled = false
+    const finish = builder => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve(builder)
+    }
+    const timer = setTimeout(() => finish(null), 12000)
+    const script = document.createElement('script')
+    script.src = url
+    script.async = true
+    script.onload = () => finish(mercadoPagoBuilder(publicKey))
+    script.onerror = () => finish(null)
+    document.head.appendChild(script)
+  }).then(builder => {
+    // Keep only pending loads in the cache. Once the script has settled, the
+    // global constructor is the source of truth and avoids a second request.
+    mercadoPagoSdkLoads.delete(url)
+    return builder
+  })
+  mercadoPagoSdkLoads.set(url, load)
+  return load
+}
+
 // The SDK may hand the token as a plain string or inside a paymentSource/card
 // object. Anything else (including a raw card number) is refused: no token, no API
 // call. Never log the value; it is single-use and card-linked.
@@ -443,6 +599,29 @@ export function extractCardToken(data) {
   return null
 }
 
+// Keeps only the opaque token and the metadata documented by the Card Payment
+// Brick. Card number, security code and expiry stay inside the provider iframe.
+export function normalizeMercadoPagoCardData(data) {
+  if (!isObject(data)) return null
+  const token = extractCardToken(data)
+  const issuerId = stringOrNull(data.issuer_id) || stringOrNull(data.issuerId)
+  const paymentMethodId = stringOrNull(data.payment_method_id) || stringOrNull(data.paymentMethodId)
+  const installments = numberOrNull(data.installments)
+  const payer = isObject(data.payer) ? data.payer : null
+  const email = payer ? stringOrNull(payer.email) : null
+  const identification = payer && isObject(payer.identification) ? payer.identification : null
+  const type = identification ? stringOrNull(identification.type)?.toUpperCase() : null
+  const number = identification ? stringOrNull(identification.number) : null
+  if (!token || !issuerId || !paymentMethodId || installments == null || installments < 1 || !email) return null
+  return {
+    token,
+    issuerId,
+    paymentMethodId,
+    installments: Math.round(installments),
+    payer: { email, identification: type && number ? { type, number } : null },
+  }
+}
+
 // The API answers a captured card order with the order, its provider id, the
 // final status and the credits it delivered. All optional-read, so a partial
 // answer still reaches the UI honestly.
@@ -452,21 +631,50 @@ export function normalizeCardOrder(data) {
   return {
     orderId: stringOrNull(source.order_id) || stringOrNull(source.orderId) || stringOrNull(source.id),
     providerOrderId: stringOrNull(source.provider_order_id) || stringOrNull(source.providerOrderId),
+    providerPaymentId: stringOrNull(source.provider_payment_id) || stringOrNull(source.providerPaymentId),
     status: String(source.status || '').toUpperCase(),
+    statusDetail: stringOrNull(source.status_detail) || stringOrNull(source.statusDetail),
     credits: numberOrNull(source.credits),
     redirectUrl: stringOrNull(source.redirect_url) || stringOrNull(source.redirectUrl),
   }
 }
 
-// Sends ONLY the variant id and the card token. One Idempotency-Key per submit
-// attempt: a network retry reuses it, so the platform replays instead of capturing
-// the card twice. A status means the server answered — never retry that.
-export async function createCardOrder(variantId, cardToken, { genKey } = {}) {
+// Sends the opaque token and the server-owned variant. One Idempotency-Key per
+// submit attempt: a network retry reuses it, so the platform replays instead of
+// capturing the card twice. A status means the server answered — never retry it.
+export async function createCardOrder(variantId, cardToken, {
+  genKey,
+  provider,
+  issuerId,
+  paymentMethodId,
+  installments,
+  payer,
+  legalConsent,
+} = {}) {
   const key = genKey ? genKey() : newKey()
+  const body = { variant_id: variantId, card_token: cardToken }
+  const selectedProvider = stringOrNull(provider)?.toLowerCase()
+  if (selectedProvider === 'mercadopago') {
+    body.provider = selectedProvider
+    body.issuer_id = stringOrNull(issuerId)
+    body.payment_method_id = stringOrNull(paymentMethodId)
+    body.installments = numberOrNull(installments)
+    if (isObject(payer)) {
+      body.payer = { email: stringOrNull(payer.email) }
+      const identification = isObject(payer.identification) ? payer.identification : null
+      const type = identification ? stringOrNull(identification.type)?.toUpperCase() : null
+      const number = identification ? stringOrNull(identification.number) : null
+      if (type && number) body.payer.identification = { type, number }
+    }
+  } else if (selectedProvider) {
+    body.provider = selectedProvider
+  }
+  const consent = normalizeLegalConsent(legalConsent)
+  if (consent) body.legal_consent = consent
   const opts = {
     method: 'POST',
     headers: { 'Idempotency-Key': key },
-    body: JSON.stringify(withHeart({ variant_id: variantId, card_token: cardToken })),
+    body: JSON.stringify(withHeart(body)),
   }
   let lastErr = null
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -518,14 +726,24 @@ export function orderStatus(v) {
   return String(s).toUpperCase()
 }
 
+export function orderStatusDetail(v) {
+  const source = v && typeof v === 'object'
+    ? v.status_detail || v.statusDetail || (v.order && (v.order.status_detail || v.order.statusDetail)) || (v.voucher && (v.voucher.status_detail || v.voucher.statusDetail))
+    : ''
+  return stringOrNull(source)
+}
+
 // The mapping table every gateway status reads through. Unknown statuses land on
 // 'pending' on purpose: "still being confirmed" is honest and never scary.
 export const STATUS_KINDS = {
   APPROVED: 'approved',
   COMPLETED: 'approved',
+  AUTHORIZED: 'pending',
+  IN_PROCESS: 'pending',
   PENDING: 'pending',
   PENDING_PAYMENT: 'pending',
   PENDING_REVIEW: 'pending_review',
+  PENDING_CHALLENGE: 'pending_review',
   IN_REVIEW: 'pending_review',
   REVIEWING: 'pending_review',
   REJECTED: 'rejected',
@@ -535,6 +753,45 @@ export const STATUS_KINDS = {
 }
 export function statusKind(status) {
   return STATUS_KINDS[String(status || '').toUpperCase()] || 'pending'
+}
+
+const PAYMENT_OUTCOMES = {
+  APPROVED: ['Your recharge went through', 'The credits are already in your balance. Nothing else to do.'],
+  AUTHORIZED: ['Your recharge is being confirmed', 'The card payment was authorized. The credits will appear once the bank confirms the payment.'],
+  IN_PROCESS: ['Your recharge is being processed', 'The payment is on its way. The credits appear once it clears, usually within minutes.'],
+  PENDING: ['Your recharge is registered', 'The payment is being confirmed — the credits appear in your balance as soon as it clears, usually within minutes.'],
+  PENDING_CHALLENGE: ['Your bank needs one more step', "The bank is asking for an extra verification. Complete it on your bank's page; your balance changes only after the payment is approved."],
+  REJECTED: ['The payment could not be completed', 'Your balance was not touched. You can start this recharge again whenever you like.'],
+}
+
+const REJECTION_MESSAGES = {
+  CC_REJECTED_INSUFFICIENT_AMOUNT: "The card didn't have enough available funds for this purchase. You can try another card or continue on the payment site.",
+  CC_REJECTED_BAD_FILLED_CARD_NUMBER: 'The card number looks incomplete. Check it and try again.',
+  CC_REJECTED_BAD_FILLED_SECURITY_CODE: 'The security code looks incomplete. Check it and try again.',
+  CC_REJECTED_BAD_FILLED_DATE: 'The expiration date looks incomplete. Check it and try again.',
+  CC_REJECTED_HIGH_RISK: "This payment could not be completed for security reasons. You can try another card or continue on the payment site.",
+  CC_REJECTED_DUPLICATED_PAYMENT: 'This payment was already registered. Check your balance before trying again.',
+  CC_REJECTED_3DS_MANDATORY: "Your bank is asking for one more verification. Complete it on your bank's page and try again.",
+  REJECTED_BY_BANK: "The bank didn't approve this payment. You can try another card or continue on the payment site.",
+  CC_REJECTED_OTHER_REASON: "The bank couldn't approve this payment. You can try another card or continue on the payment site.",
+}
+
+// Converts provider states into buyer-facing copy. Raw gateway codes never
+// leave this module: the component only receives translation keys and a kind.
+export function paymentOutcome(status, statusDetail) {
+  const state = String(status || '').toUpperCase()
+  const detail = String(statusDetail || '').toUpperCase()
+  const rejection = REJECTION_MESSAGES[detail]
+  if (rejection || state === 'REJECTED' || state === 'FAILED') {
+    return {
+      kind: 'rejected',
+      titleKey: PAYMENT_OUTCOMES.REJECTED[0],
+      messageKey: rejection || PAYMENT_OUTCOMES.REJECTED[1],
+    }
+  }
+  const effectiveState = detail === 'PENDING_CHALLENGE' ? 'PENDING_CHALLENGE' : state
+  const copy = PAYMENT_OUTCOMES[effectiveState] || PAYMENT_OUTCOMES.PENDING
+  return { kind: statusKind(effectiveState), titleKey: copy[0], messageKey: copy[1] }
 }
 
 // The gateway redirect is the first place where a cancellation is visible; the
@@ -621,5 +878,5 @@ async function checkReturnedTopUpOnce() {
   clearTopupRecord()
   clearTopUpReturnParams()
   const status = orderStatus(v)
-  return { orderId, voucher: v, status, kind: returnKind || statusKind(status) }
+  return { orderId, voucher: v, status, statusDetail: orderStatusDetail(v), kind: returnKind || statusKind(status) }
 }

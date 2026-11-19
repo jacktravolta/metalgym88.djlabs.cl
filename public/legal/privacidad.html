@@ -254,8 +254,10 @@ strong { font-weight: 650; }
           coach.
         </li>
         <li>
-          <strong>Datos de pago:</strong> no los vemos. El pago ocurre dentro de la pasarela (Flow) y nosotros
-          solo recibimos el resultado de la operación. Nunca almacenamos el número de tu tarjeta.
+          <strong>Datos de pago:</strong> no los vemos. El pago ocurre dentro de Flow, PayPal o Mercado Pago y
+          nosotros solo recibimos el resultado de la operación. En los pagos con tarjeta, el número, la fecha de
+          vencimiento y el código de seguridad permanecen dentro del proveedor y solo se nos envía un token
+          opaco. Nunca almacenamos los datos completos de tu tarjeta.
         </li>
       </ul>
 
@@ -279,8 +281,8 @@ strong { font-weight: 650; }
           lectura y en cada escritura, así que nadie más puede abrirlo.
         </li>
         <li>
-          <strong>En la pasarela de pago:</strong> los datos estrictamente necesarios para procesar la
-          transacción, por el tiempo que la pasarela los conserve.
+          <strong>En la pasarela de pago:</strong> Flow, PayPal o Mercado Pago conservan los datos estrictamente
+          necesarios para procesar la transacción, por el tiempo que cada proveedor los conserve.
         </li>
         <li>
           <strong>En el servicio de IA:</strong> cuando preguntas al coach, tu pregunta y un resumen acotado
@@ -293,8 +295,8 @@ strong { font-weight: 650; }
       <ul>
         <li><strong>No vendemos tus datos.</strong> No los usamos para publicidad ni para perfiles de terceros.</li>
         <li>
-          Solo se comparten, y solo lo necesario: con la pasarela de pago para cobrar, con el servicio de IA
-          para responder tu pregunta, y con las autoridades cuando la ley nos obligue.
+          Solo se comparten, y solo lo necesario: con Flow, PayPal o Mercado Pago para cobrar, con el servicio de
+          IA para responder tu pregunta, y con las autoridades cuando la ley nos obligue.
         </li>
         <li>
           Cada producto de la plataforma guarda sus datos por separado: metalgym88 no ve los datos de los
@@ -350,8 +352,9 @@ strong { font-weight: 650; }
       <ul>
         <li>Todo el sitio viaja por HTTPS.</li>
         <li>
-          La política de seguridad de contenido del sitio prohíbe cargar código de terceros: la aplicación y
-          estos documentos funcionan sin scripts externos.
+          La política de seguridad de contenido limita los recursos de terceros a los servicios permitidos por la
+          aplicación. En particular, el formulario de pago solo puede cargar los SDK y marcos de seguridad de los
+          proveedores indicados; estos documentos legales no cargan scripts ni recursos externos.
         </li>
         <li>
           La sesión se apoya en un token de acceso de corta duración que vive en memoria y en una cookie

@@ -140,6 +140,10 @@ function platformError(r, data) {
   e.status = r.status
   e.code = (inner && typeof inner.code === 'string' && inner.code) ||
     (typeof env.code === 'string' ? env.code : '')
+  // Payment providers explain a refusal with a machine-readable detail. Keep
+  // it structured so the wallet can translate it instead of showing the code.
+  e.statusDetail = (inner && typeof inner.status_detail === 'string' ? inner.status_detail : null) ||
+    (typeof env.status_detail === 'string' ? env.status_detail : null)
   return e
 }
 

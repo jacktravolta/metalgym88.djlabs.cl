@@ -10,10 +10,11 @@
 // Boleta (document_type 46) is the only document type here; factura + fiscal fields come
 // in a later task (the seam is in wallet.js createOrder).
 //
-// The payment gateway ALWAYS continues in this same window: paying replaces the app
+// The redirect rail ALWAYS continues in this same window: paying replaces the app
 // for a moment, and the boot check speaks the result when the person comes back.
-// The USD rail renders PayPal's card fields in place (no hosted account page), so a
-// card payment never leaves this sheet. CLP keeps the gateway redirect.
+// The card rails render their provider fields in place (no hosted account page),
+// so a card payment never leaves this sheet. The default card rail is selected
+// only when the backend advertises it and supplies its public key.
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
@@ -22,10 +23,12 @@ import { DEMO } from '../lib/demo.js'
 import { MOBILE } from '../lib/mobile.js'
 import { t } from '../lib/i18n.js'
 import { fmtNum, fmtDate } from '../lib/format.js'
+import { TERMS_URL, PRIVACY_URL } from '../lib/legal.js'
 import {
-  fetchMovements, fetchTariffs, fetchLimits, fetchQuote, clampAmount,
-  usdPriceLabel, usdPacks, showsCustomAmount, groupMovements, statusKind,
-  createOrder, createCardOrder, extractCardToken, loadPaypalSdk, goToPayment,
+  fetchMovements, fetchTariffs, fetchLimits, fetchQuote, clampAmount, formatMoney,
+  usdPriceLabel, usdPacks, showsCustomAmount, groupMovements,
+  createOrder, createCardOrder, extractCardToken, normalizeMercadoPagoCardData,
+  hasMercadoPagoRail, loadPaypalSdk, loadMercadoPagoSdk, paymentOutcome, goToPayment,
   saveTopupRecord, checkReturnedTopUp,
 } from '../lib/platform/wallet.js'
 import Icon from './Icon.jsx'
@@ -46,17 +49,19 @@ const CARD_STYLE = {
 
 function TopUpStatusSheet({ result, close }) {
   // Neutral copy per status: what happened, what (if anything) to do next — never scary.
-  // Anything unmapped lands on the pending wording: honest, calm, no action demanded.
-  const copy = {
-    approved: [t('Your recharge went through'), t('The credits are already in your balance. Nothing else to do.')],
-    rejected: [t('The payment could not be completed'), t('Your balance was not touched. You can start this recharge again whenever you like.')],
-    canceled: [t('The recharge was left unfinished'), t('Nothing was charged. Whenever you want, you can start it again from your wallet.')],
-    pending_review: [t('Your recharge is being reviewed'), t('The payment is being checked. If everything matches, the credits are added to your balance — no action needed from you.')],
-  }[result.kind]
-    || [t('Your recharge is registered'), t('The payment is being confirmed — the credits appear in your balance as soon as it clears, usually within minutes.')]
+  // Provider detail codes are translated before they reach this component.
+  const outcome = paymentOutcome(result.status || result.kind, result.statusDetail)
+  const kind = result.kind === 'canceled' ? 'canceled' : outcome.kind
+  const copy = result.kind === 'canceled'
+    ? [t('The recharge was left unfinished'), t('Nothing was charged. Whenever you want, you can start it again from your wallet.')]
+    : result.kind === 'approved'
+      ? [t('Your recharge went through'), t('The credits are already in your balance. Nothing else to do.')]
+      : result.kind === 'pending_review' && result.status !== 'pending_challenge'
+        ? [t('Your recharge is being reviewed'), t('The payment is being checked. If everything matches, the credits are added to your balance — no action needed from you.')]
+        : [t(outcome.titleKey), t(outcome.messageKey)]
   return <div style={{ textAlign: 'center', padding: '6px 0' }}>
     <div style={{ fontSize: 40, display: 'flex', justifyContent: 'center', color: 'var(--acc)' }}>
-      <Icon name={result.kind === 'rejected' || result.kind === 'canceled' ? 'wallet' : 'checkCircle'} />
+      <Icon name={kind === 'rejected' || kind === 'canceled' ? 'wallet' : 'checkCircle'} />
     </div>
     <h3 style={{ margin: '8px 0 4px' }}>{copy[0]}</h3>
     <div className="muted small" style={{ marginBottom: 16, lineHeight: 1.5 }}>{copy[1]}</div>
@@ -102,6 +107,7 @@ function MovementDay({ group }) {
 
 function WalletPanel({ close }) {
   const balance = useStore(s => s.balance)
+  const userEmail = useStore(s => s.user?.email) || ''
   const [movs, setMovs] = useState(null)          // { items, hasMore } — null = loading
   const [page, setPage] = useState(1)
   const [movErr, setMovErr] = useState(false)
@@ -114,6 +120,16 @@ function WalletPanel({ close }) {
   const [amount, setAmount] = useState(DEFAULT_AMOUNT)
   const [busy, setBusy] = useState(false)
   const [topupErr, setTopupErr] = useState(null)
+  const [legalAccepted, setLegalAccepted] = useState(false)
+  // Mercado Pago is the primary rail when the backend advertises it. Existing
+  // redirect and PayPal paths stay untouched behind the secondary control.
+  const [showAlternativePayment, setShowAlternativePayment] = useState(false)
+  const [mpState, setMpState] = useState('idle')
+  const [mpBusy, setMpBusy] = useState(false)
+  const [mpErr, setMpErr] = useState(null)
+  const [mpVariantId, setMpVariantId] = useState(null)
+  const mpBrick = useRef(null)
+  const mpBusyRef = useRef(false)
   // Card form: idle → loading → ready (fields rendered) or unavailable (honest fallback).
   const [cardState, setCardState] = useState('idle')
   const [cardBusy, setCardBusy] = useState(false)
@@ -121,8 +137,9 @@ function WalletPanel({ close }) {
   const cardFields = useRef(null)
   const cardCreateOrder = useRef(null)
   const selectedVariantRef = useRef(null)
-  // PayPal renders into ids we own; useId keeps them unique across sheet reopens.
+  // Providers render into ids we own; useId keeps them unique across sheet reopens.
   const cardUid = useId().replace(/:/g, '')
+  const mpUid = useId().replace(/:/g, '')
 
   const refreshWallet = useCallback(() => {
     platformMe()
@@ -158,11 +175,20 @@ function WalletPanel({ close }) {
       if (!alive || !q) return
       const available = q.currencies.filter(c => c.available)
       const preferred = available.find(c => c.currency === q.defaultCurrency) || available[0] || null
+      const mpAvailable = hasMercadoPagoRail(q.providers, q.mercadopago)
+      const primary = mpAvailable
+        ? available.find(c => c.currency === 'CLP') || preferred
+        : preferred
       setQuote(q)
-      setCurrency(preferred ? preferred.currency : '')
-      setVariantId(preferred && preferred.currency === 'USD' && preferred.variants[0]
-        ? preferred.variants[0].variantId
+      setCurrency(primary ? primary.currency : '')
+      setVariantId(primary && primary.currency === 'USD' && primary.variants[0]
+        ? primary.variants[0].variantId
         : null)
+      if (mpAvailable) {
+        const mpOption = q.currencies.find(c => c.currency === 'CLP' && c.available)
+        setMpVariantId(mpOption && mpOption.variants[0] ? mpOption.variants[0].variantId : null)
+        setShowAlternativePayment(false)
+      }
     })
     // A recharge just came back from the payment site? Say how it ended, once, kindly.
     checkReturnedTopUp()
@@ -184,6 +210,15 @@ function WalletPanel({ close }) {
   const paypalInfo = quote ? quote.paypal : null
   const cardWanted = currency === 'USD' && !!paypalInfo
   const cardReady = cardWanted && cardState === 'ready'
+
+  const mpInfo = quote ? quote.mercadopago : null
+  const mpAvailable = hasMercadoPagoRail(quote?.providers, mpInfo)
+  const mpOption = quote ? quote.currencies.find(c => c.currency === 'CLP' && c.available) : null
+  const mpVariants = mpOption ? mpOption.variants : []
+  const mpVariant = mpVariants.find(v => v.variantId === mpVariantId) || mpVariants[0] || null
+  const mpAmount = mpVariant?.amountClp || quote?.iva?.total || clampAmount(amount, limits) || DEFAULT_AMOUNT
+  const mpWanted = mpAvailable && !showAlternativePayment
+  const mpReady = mpWanted && mpState === 'ready'
 
   // Loads and mounts PayPal's card fields only while the USD rail is selected and
   // the API exposed a public client id. Any failure leaves the card option off and
@@ -237,6 +272,57 @@ function WalletPanel({ close }) {
     }
   }, [cardWanted, paypalInfo?.clientId, paypalInfo?.environment, cardUid])
 
+  // Mercado Pago's Card Payment Brick owns the card fields in its own iframes.
+  // Its default submit button is hidden so the app's consent-gated button stays
+  // the only way to start a payment.
+  useEffect(() => {
+    if (!mpWanted) {
+      setMpState('idle')
+      setMpErr(null)
+      return
+    }
+    let alive = true
+    setMpState('loading')
+    setMpErr(null)
+    mpBrick.current = null
+    loadMercadoPagoSdk(mpInfo).then(async builder => {
+      if (!alive) return
+      if (!builder) { setMpState('unavailable'); return }
+      try {
+        const initialization = { amount: mpAmount }
+        if (userEmail) initialization.payer = { email: userEmail, identification: { type: 'RUT' } }
+        const controller = await builder.create('cardPayment', 'mp-card-' + mpUid, {
+          initialization,
+          callbacks: {
+            onReady: () => { if (alive) setMpState('ready') },
+            onSubmit: () => Promise.resolve(),
+            onError: error => {
+              if (!alive) return
+              setMpErr(t("The card form couldn't be loaded — try another card or use another payment method."))
+              if (error && error.type === 'critical') setMpState('unavailable')
+            },
+          },
+          customization: { visual: { hidePaymentButton: true } },
+          locale: 'es-CL',
+        })
+        if (!alive) {
+          try { if (controller && typeof controller.unmount === 'function') controller.unmount() } catch { /* already gone */ }
+          return
+        }
+        mpBrick.current = controller
+        setMpState('ready')
+      } catch {
+        if (alive) setMpState('unavailable')
+      }
+    }).catch(() => { if (alive) setMpState('unavailable') })
+    return () => {
+      alive = false
+      const controller = mpBrick.current
+      mpBrick.current = null
+      try { if (controller && typeof controller.unmount === 'function') controller.unmount() } catch { /* already gone */ }
+    }
+  }, [mpWanted, mpInfo?.publicKey, mpAmount, userEmail, mpUid])
+
   const chooseCurrency = option => {
     if (!option || !option.available) return
     setTopupErr(null)
@@ -246,19 +332,28 @@ function WalletPanel({ close }) {
   }
 
   // Neutral copy per failure: what happened and what to do next — never blame.
-  const errorCopy = e =>
-    e && e.status === 401 ? t('Your session has expired — sign in again and come back to your wallet.')
+  const errorCopy = e => {
+    if (e && e.statusDetail) {
+      const outcome = paymentOutcome('rejected', e.statusDetail)
+      return t(outcome.messageKey)
+    }
+    return e && e.status === 401 ? t('Your session has expired — sign in again and come back to your wallet.')
     : e && e.status === 402 ? t("Adding credits isn't available right now — please try again later.")
     : e && typeof e.status === 'number' ? t('The recharge could not be started: {0}', e.message)
     : t("We couldn't reach the payment service — check your connection and try again.")
+  }
 
   const startTopup = async () => {
     if (busy) return
+    if (!legalAccepted) {
+      setTopupErr(t('Accept the Terms and Conditions and the Privacy Policy to continue.'))
+      return
+    }
     let orderAmount = null
-    let orderOptions = { currency: 'CLP' }
+    let orderOptions = { currency: 'CLP', legalConsent: { terms: true, privacy: true } }
     if (currency === 'USD') {
       if (!selectedVariant) { setTopupErr(t('Choose an option first.')); return }
-      orderOptions = { currency: 'USD', variantId: selectedVariant.variantId }
+      orderOptions = { currency: 'USD', variantId: selectedVariant.variantId, legalConsent: { terms: true, privacy: true } }
     } else if (currency === 'CLP') {
       const clamped = clampAmount(amount, limits)
       if (!clamped) { setTopupErr(t('Choose an amount first — pick a pack or type one.')); return }
@@ -294,6 +389,10 @@ function WalletPanel({ close }) {
   // selected variant, and let the server answer decide what the UI says.
   cardCreateOrder.current = async data => {
     const variant = selectedVariantRef.current
+    if (!legalAccepted) {
+      setCardErr(t('Accept the Terms and Conditions and the Privacy Policy to continue.'))
+      throw new Error('Legal consent required')
+    }
     if (!variant) {
       setCardErr(t('Choose an option first.'))
       throw new Error('No USD variant selected')
@@ -305,16 +404,18 @@ function WalletPanel({ close }) {
     }
     setCardBusy(true); setCardErr(null)
     try {
-      const { order } = await createCardOrder(variant.variantId, token)
+      const { order } = await createCardOrder(variant.variantId, token, {
+        legalConsent: { terms: true, privacy: true },
+      })
       if (!order || (!order.orderId && !order.providerOrderId)) {
         setCardErr(t("Couldn't complete the card payment — try again in a moment."))
         throw new Error('Malformed card order response')
       }
       // Drive the result from the server response, not from an SDK callback:
       // APPROVED means the capture already happened and the credits are in.
-      const kind = statusKind(order.status)
-      if (kind === 'approved') refreshWallet()
-      useUI.getState().openSheet(c2 => <TopUpStatusSheet result={{ kind }} close={c2} />)
+      const outcome = paymentOutcome(order.status, order.statusDetail)
+      if (outcome.kind === 'approved') refreshWallet()
+      useUI.getState().openSheet(c2 => <TopUpStatusSheet result={{ kind: outcome.kind, status: order.status, statusDetail: order.statusDetail }} close={c2} />)
       return order.providerOrderId || order.orderId
     } catch (e) {
       setCardErr(errorCopy(e))
@@ -340,9 +441,64 @@ function WalletPanel({ close }) {
     }
   }
 
+  const submitMercadoPago = async () => {
+    if (mpBusyRef.current) return
+    if (!legalAccepted) {
+      setMpErr(t('Accept the Terms and Conditions and the Privacy Policy to continue.'))
+      return
+    }
+    if (!mpVariant) {
+      setMpErr(t('Card recharge options are not available right now.'))
+      return
+    }
+    const controller = mpBrick.current
+    if (!controller || typeof controller.getFormData !== 'function') {
+      setMpErr(t("The card form isn't available right now — you can use another payment method."))
+      return
+    }
+    mpBusyRef.current = true
+    setMpBusy(true); setMpErr(null)
+    try {
+      const cardData = normalizeMercadoPagoCardData(await controller.getFormData())
+      if (!cardData) {
+        setMpErr(t('We could not read the card details — please enter them again.'))
+        return
+      }
+      const { order } = await createCardOrder(mpVariant.variantId, cardData.token, {
+        provider: 'mercadopago',
+        issuerId: cardData.issuerId,
+        paymentMethodId: cardData.paymentMethodId,
+        installments: cardData.installments,
+        payer: cardData.payer,
+        legalConsent: { terms: true, privacy: true },
+      })
+      if (!order || (!order.orderId && !order.providerOrderId)) {
+        setMpErr(t("Couldn't complete the card payment — try again in a moment."))
+        return
+      }
+      const outcome = paymentOutcome(order.status, order.statusDetail)
+      if (outcome.kind === 'approved') refreshWallet()
+      useUI.getState().openSheet(c2 => <TopUpStatusSheet result={{ kind: outcome.kind, status: order.status, statusDetail: order.statusDetail }} close={c2} />)
+    } catch (e) {
+      setMpErr(errorCopy(e))
+    } finally {
+      mpBusyRef.current = false
+      setMpBusy(false)
+    }
+  }
+
   const shown = movs ? movs.items : null
   const groups = shown ? groupMovements(shown) : []
   const usdPackList = selectedOption ? usdPacks(selectedOption) : []
+  const visibleIva = quote ? quote.iva : null
+  const displayCurrency = currency || 'CLP'
+  const fallbackTotal = mpAvailable && !showAlternativePayment
+    ? mpAmount
+    : currency === 'USD'
+      ? selectedVariant?.priceUsd || 0
+      : clampAmount(amount, limits) || 0
+  const displayedTotal = visibleIva ? visibleIva.total : fallbackTotal
+  const displayMoney = value => formatMoney(value, displayCurrency) + (displayCurrency === 'CLP' ? ' CLP' : '')
   return <>
     <h3>{t('Wallet')}</h3>
 
@@ -364,6 +520,78 @@ function WalletPanel({ close }) {
       <p className="muted small" style={{ textAlign: 'center' }}>{t("Adding credits isn't available right now — please try again later.")}</p>
     ) : <>
       <h4 className="sec">{t('Add credits')}</h4>
+      <div className="list" style={{ margin: '0 2px 12px' }}>
+        {visibleIva && <>
+          <div className="row between" style={{ padding: '7px 0' }}>
+            <span className="muted small">{t('Net')}</span>
+            <span className="small" style={{ fontVariantNumeric: 'tabular-nums' }}>{displayMoney(visibleIva.net)}</span>
+          </div>
+          <div className="row between" style={{ padding: '7px 0' }}>
+            <span className="muted small">IVA</span>
+            <span className="small" style={{ fontVariantNumeric: 'tabular-nums' }}>{displayMoney(visibleIva.iva)}</span>
+          </div>
+        </>}
+        <div className="row between" style={{ padding: '9px 0', borderTop: visibleIva ? '1px solid var(--sep)' : 'none' }}>
+          <span style={{ fontWeight: 600 }}>{t('Total (IVA included)')}</span>
+          <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{displayMoney(displayedTotal)}</strong>
+        </div>
+      </div>
+      <div style={{ margin: '0 2px 12px' }}>
+        <label className="dim small" style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={legalAccepted}
+            onChange={e => { setLegalAccepted(e.target.checked); setTopupErr(null); setCardErr(null); setMpErr(null) }}
+            style={{ marginTop: 2, flexShrink: 0 }}
+          />
+          <span>
+            {t('I accept the Terms and Conditions and the Privacy Policy')} ·{' '}
+            <a href={TERMS_URL} target="_blank" rel="noreferrer" style={{ textDecoration: 'underline' }}>{t('Terms and Conditions')}</a>
+            {' · '}
+            <a href={PRIVACY_URL} target="_blank" rel="noreferrer" style={{ textDecoration: 'underline' }}>{t('Privacy Policy')}</a>
+          </span>
+        </label>
+      </div>
+      {mpAvailable && !showAlternativePayment ? <>
+        {mpVariants.length > 0 ? <div className="chips" style={{ marginBottom: 10 }}>
+          {mpVariants.map(variant => (
+            <button
+              key={variant.variantId}
+              className={'chip nocap' + (mpVariant?.variantId === variant.variantId ? ' on' : '')}
+              aria-pressed={mpVariant?.variantId === variant.variantId}
+              onClick={() => { setMpVariantId(variant.variantId); setMpErr(null) }}
+            >
+              {variant.amountClp != null ? fmtNum(variant.amountClp) + ' CLP' : '—'}
+              {variant.credits != null ? ` · ${t('{0} credits', fmtNum(variant.credits))}` : ''}
+            </button>
+          ))}
+        </div> : <div className="dim small" style={{ marginBottom: 10 }}>
+          {t('Card recharge options are not available right now.')}
+        </div>}
+        <div className="muted small" style={{ margin: '0 2px 8px' }}>{t('Pay with a card — no account needed.')}</div>
+        <div id={'mp-card-' + mpUid} style={{ margin: '0 2px 10px' }} />
+        {mpState === 'loading' && <div className="dim small" style={{ margin: '0 2px 8px' }}>
+          {t('Loading the card form…')}
+        </div>}
+        {mpState === 'unavailable' && <div className="dim small" style={{ margin: '0 2px 8px' }}>
+          {t("The card form isn't available right now — you can use another payment method.")}
+        </div>}
+        <Button
+          variant="primary"
+          disabled={!legalAccepted || mpBusy || !mpVariant || mpState !== 'ready'}
+          onClick={submitMercadoPago}
+        >
+          {mpBusy
+            ? t('Processing the payment…')
+            : mpVariant && mpVariant.credits != null
+              ? t('Add {0} in credits · {1} credits', displayMoney(mpAmount), fmtNum(mpVariant.credits))
+              : t('Add {0} in credits', displayMoney(mpAmount))}
+        </Button>
+        {mpErr && <div className="dim small" style={{ marginTop: 8 }}>{mpErr}</div>}
+        <Button variant="ghost" className="dim" style={{ marginTop: 8 }} onClick={() => { setShowAlternativePayment(true); setTopupErr(null); setCardErr(null); setMpErr(null) }}>
+          {t('Other payment methods')}
+        </Button>
+      </> : <>
       {quote && <div style={{ margin: '0 2px 12px' }}>
         {quote.detectedCountry && <div className="muted small" style={{ marginBottom: 8 }}>
           {t('Detected country: {0}', quote.detectedCountry)}
@@ -405,7 +633,7 @@ function WalletPanel({ close }) {
             ? t('Recharges run from {0} to {1} CLP.', limits.min != null ? fmtNum(limits.min) : '—', limits.max != null ? fmtNum(limits.max) : '—')
             : null}
         </div>}
-        <Button variant="primary" disabled={busy} onClick={startTopup}>
+        <Button variant="primary" disabled={busy || !legalAccepted} onClick={startTopup}>
           {busy ? t('Opening the payment site…') : t('Add {0} CLP in credits', fmtNum(amount))}
         </Button>
       </> : currency === 'USD' ? <>
@@ -443,7 +671,7 @@ function WalletPanel({ close }) {
         </div>}
         <Button
           variant="primary"
-          disabled={busy || cardBusy || !selectedVariant || (cardWanted && cardState === 'loading')}
+          disabled={busy || cardBusy || !legalAccepted || !selectedVariant || (cardWanted && cardState === 'loading')}
           onClick={cardReady ? submitCard : startTopup}
         >
           {cardBusy
@@ -458,8 +686,12 @@ function WalletPanel({ close }) {
         </Button>
         {cardErr && <div className="dim small" style={{ marginTop: 8 }}>{cardErr}</div>}
       </> : <div className="muted small">{t('No recharge options are available right now.')}</div>}
+      {mpAvailable && showAlternativePayment ? <Button variant="ghost" className="dim" style={{ marginTop: 8 }} onClick={() => { setShowAlternativePayment(false); setTopupErr(null); setCardErr(null); setMpErr(null) }}>
+        {t('Back to card payment')}
+      </Button> : null}
+      </>}
       {topupErr && <div className="dim small" style={{ marginTop: 8 }}>{topupErr}</div>}
-      {cardReady ? null : <div className="dim small" style={{ marginTop: 8, lineHeight: 1.5 }}>
+      {mpAvailable && !showAlternativePayment ? null : cardReady ? null : <div className="dim small" style={{ marginTop: 8, lineHeight: 1.5 }}>
         {t('The payment continues in this same window.')}
       </div>}
     </>}

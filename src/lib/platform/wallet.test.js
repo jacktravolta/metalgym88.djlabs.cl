@@ -1,13 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import es from '../../locales/es.js'
 import {
   normalizeLimits, fetchLimits, clampAmount,
   normalizeQuote, fetchQuote, formatMoney,
   usdPriceLabel, usdPacks, showsCustomAmount, normalizePaypalInfo,
+  normalizeMercadoPagoInfo, normalizeProviderKeys, normalizeIva, hasMercadoPagoRail,
+  paymentProviderMethod, availableProvidersForCurrency, selectInitialCurrency,
   normalizeMovements, fetchMovements, movementDirection, movementLabel, groupMovements,
   normalizeTariffs, fetchTariffs, tariffLabel,
-  createOrder, createCardOrder, extractCardToken, loadPaypalSdk, goToPayment,
+  createOrder, createCardOrder, extractCardToken, normalizeMercadoPagoCardData,
+  loadPaypalSdk, mercadopagoSdkUrl, loadMercadoPagoSdk, goToPayment,
   saveTopupRecord, readTopupRecord, clearTopupRecord, TOPUP_RECORD_KEY, TOPUP_TTL_MS,
-  orderStatus, statusKind, topUpReturnKind, checkReturnedTopUp,
+  orderStatus, statusKind, paymentOutcome, topUpReturnKind, checkReturnedTopUp,
 } from './wallet.js'
 
 const BASE = 'https://api.djlabs.cl'
@@ -77,10 +81,13 @@ describe('payment quote', () => {
       detectedCountry: 'CL',
       detectedCurrency: 'CLP',
       defaultCurrency: 'CLP',
+      selectedProvider: null,
       paypal: null,
+      mercadopago: null,
+      iva: null,
       currencies: [
-        { currency: 'CLP', available: true, reason: null, minClp: 1000, maxClp: 10000, presets: [1000, 5000, 10000], variants: [] },
-        { currency: 'USD', available: false, reason: 'El pago en dólares todavía no está disponible.', minClp: null, maxClp: null, presets: [], variants: [] },
+        { currency: 'CLP', available: true, reason: null, minClp: 1000, maxClp: 10000, presets: [1000, 5000, 10000], variants: [], providers: null },
+        { currency: 'USD', available: false, reason: 'El pago en dólares todavía no está disponible.', minClp: null, maxClp: null, presets: [], variants: [], providers: null },
       ],
     })
   })
@@ -102,7 +109,7 @@ describe('payment quote', () => {
     expect(out.defaultCurrency).toBe('USD')
     expect(out.currencies[0]).toEqual({
       currency: 'CLP', available: true, reason: null, minClp: 1000, maxClp: 10000,
-      presets: [1000, 5000, 10000], variants: [],
+      presets: [1000, 5000, 10000], variants: [], providers: null,
     })
     expect(out.currencies[1].variants).toEqual([
       { variantId: '67890', priceUsd: 10, priceUsdCents: 1000, credits: 10000, amountClp: 10000, label: 'US$10' },
@@ -143,6 +150,84 @@ describe('payment quote', () => {
     expect(normalizePaypalInfo({})).toBe(null)
     expect(normalizePaypalInfo({ client_id: '   ' })).toBe(null)
     expect(normalizeQuote({ currencies: [{ currency: 'USD', available: true }] }).paypal).toBe(null)
+  })
+
+  it('normalizes the provider keys advertised for each currency', () => {
+    const out = normalizeQuote({
+      detected_country: 'AR',
+      detected_currency: 'USD',
+      default_currency: 'CLP',
+      selected_provider: 'mercadopago',
+      currencies: [
+        { currency: 'CLP', available: true, providers: ['flow', 'mercadopago'] },
+        { currency: 'USD', available: true, providers: ['paypal'] },
+      ],
+      // A stale top-level providers field is not part of the authoritative contract.
+      providers: ['paypal'],
+      mercadopago: { public_key: 'APP_USR-public-test', environment: 'production' },
+      iva: { net: 1000, iva: 190, total: 1190 },
+    })
+
+    expect(out).not.toHaveProperty('providers')
+    expect(out.selectedProvider).toBe('mercadopago')
+    expect(out.currencies[0].providers).toEqual(['flow', 'mercadopago'])
+    expect(out.currencies[1].providers).toEqual(['paypal'])
+    expect(out.mercadopago).toEqual({ publicKey: 'APP_USR-public-test', environment: 'production' })
+    expect(out.iva).toEqual({ net: 1000, iva: 190, total: 1190 })
+  })
+
+  it('normalizes provider keys and derives their method in the client', () => {
+    expect(normalizeProviderKeys([' Flow ', 'flow', 'PAYPAL', 'mercadopago', 'unknown', 42])).toEqual([
+      'flow', 'paypal', 'mercadopago',
+    ])
+    expect(normalizeProviderKeys('not-a-list')).toEqual([])
+    expect(paymentProviderMethod('mercadopago')).toBe('card')
+    expect(paymentProviderMethod('paypal')).toBe('card')
+    expect(paymentProviderMethod('flow')).toBe('redirect')
+    expect(paymentProviderMethod('unknown')).toBe(null)
+  })
+
+  it('makes the card rail available only when the selected currency lists it and its public key is present', () => {
+    expect(hasMercadoPagoRail(['flow', 'mercadopago'], { publicKey: 'APP_USR-public-test' })).toBe(true)
+    expect(hasMercadoPagoRail(['flow', 'mercadopago'], null)).toBe(false)
+    expect(hasMercadoPagoRail(['flow'], { publicKey: 'APP_USR-public-test' })).toBe(false)
+    expect(hasMercadoPagoRail(['flow', 'mercadopago'], { publicKey: '  ' })).toBe(false)
+  })
+
+  it('keeps older quotes usable by deriving the legacy rail for each currency', () => {
+    const paypalQuote = normalizeQuote({
+      currencies: [{ currency: 'USD', available: true }],
+      paypal: { client_id: 'sb-client' },
+    })
+    expect(paypalQuote.currencies[0].providers).toBe(null)
+    expect(availableProvidersForCurrency(paypalQuote.currencies[0], paypalQuote)).toEqual(['paypal'])
+
+    const redirectQuote = normalizeQuote({
+      currencies: [{ currency: 'CLP', available: true }],
+    })
+    expect(availableProvidersForCurrency(redirectQuote.currencies[0], redirectQuote)).toEqual(['flow'])
+    expect(redirectQuote.mercadopago).toBe(null)
+    expect(redirectQuote.iva).toBe(null)
+  })
+
+  it('selects the platform default currency even when the detected currency differs', () => {
+    const quote = normalizeQuote({
+      detected_country: 'AR',
+      detected_currency: 'USD',
+      default_currency: 'CLP',
+      currencies: [
+        { currency: 'CLP', available: true, providers: ['mercadopago'] },
+        { currency: 'USD', available: true, providers: ['paypal'] },
+      ],
+    })
+    expect(selectInitialCurrency(quote).currency).toBe('CLP')
+  })
+
+  it('ignores malformed public-key and IVA fields instead of breaking the quote', () => {
+    expect(normalizeMercadoPagoInfo({ public_key: '  ' })).toBe(null)
+    expect(normalizeMercadoPagoInfo(null)).toBe(null)
+    expect(normalizeIva({ net: 1000, iva: 190 })).toBe(null)
+    expect(normalizeIva(null)).toBe(null)
   })
 
   it('renders a USD pack row from the quote variants: dollar price plus credits', () => {
@@ -194,6 +279,18 @@ describe('payment quote', () => {
     vi.stubGlobal('fetch', m.impl)
     expect(await fetchQuote()).toBe(null)
     expect(m.seen[0].url).toBe(BASE + '/payments/quote?heart=metalgym88')
+  })
+
+  it('requests an explicitly selected provider and currency when the buyer chooses them', async () => {
+    const m = mockFetch([res(200, {
+      default_currency: 'CLP',
+      currencies: [{ currency: 'CLP', available: true, providers: ['mercadopago'] }],
+      selected_provider: 'mercadopago',
+    })])
+    vi.stubGlobal('fetch', m.impl)
+    const out = await fetchQuote({ provider: 'mercadopago', currency: 'CLP' })
+    expect(out.selectedProvider).toBe('mercadopago')
+    expect(m.seen[0].url).toBe(BASE + '/payments/quote?provider=mercadopago&currency=CLP&heart=metalgym88')
   })
 
   it('returns null on a quote network failure', async () => {
@@ -349,6 +446,18 @@ describe('createOrder — provider-agnostic order creation', () => {
     expect(JSON.parse(call.opts.body)).toEqual({ amount_clp: 5000, currency: 'CLP', document_type: 46, heart: 'metalgym88' })
   })
 
+  it('carries the buyer legal consent on a redirect order', async () => {
+    const m = mockFetch([res(200, { redirect_url: 'https://pay/go' })])
+    vi.stubGlobal('fetch', m.impl)
+    await createOrder(5000, {
+      genKey: () => 'CONSENT-KEY',
+      legalConsent: { terms: true, privacy: true },
+    })
+    const call = m.seen[0]
+    expect(call.opts.headers['Idempotency-Key']).toBe('CONSENT-KEY')
+    expect(JSON.parse(call.opts.body).legal_consent).toEqual({ terms: true, privacy: true })
+  })
+
   it('POSTs the USD variant without inventing an amount or credits', async () => {
     const m = mockFetch([res(200, { redirect_url: 'https://pay/go' })])
     vi.stubGlobal('fetch', m.impl)
@@ -480,7 +589,13 @@ describe('card checkout — token only, never raw card data', () => {
     expect(body).not.toHaveProperty('amount_clp')
     expect(body).not.toHaveProperty('credits')
     expect(order).toEqual({
-      orderId: 'o-card', providerOrderId: 'pp-1', status: 'APPROVED', credits: 5000, redirectUrl: null,
+      orderId: 'o-card',
+      providerOrderId: 'pp-1',
+      providerPaymentId: null,
+      status: 'APPROVED',
+      statusDetail: null,
+      credits: 5000,
+      redirectUrl: null,
     })
   })
 
@@ -500,6 +615,175 @@ describe('card checkout — token only, never raw card data', () => {
     expect(m.impl).toHaveBeenCalledTimes(1)
     expect(err.status).toBe(402)
     expect(err.code).toBe('CARD_DECLINED')
+  })
+})
+
+describe('Mercado Pago card checkout', () => {
+  it('reads only the Brick token and the card metadata the backend needs', () => {
+    const out = normalizeMercadoPagoCardData({
+      token: 'mp-token',
+      issuer_id: '310',
+      payment_method_id: 'master',
+      installments: 1,
+      payer: {
+        email: 'buyer@example.com',
+        identification: { type: 'RUT', number: '12.345.678-9' },
+      },
+      card: { number: '4111111111111111', cvv: '123' },
+    })
+
+    expect(out).toEqual({
+      token: 'mp-token',
+      issuerId: '310',
+      paymentMethodId: 'master',
+      installments: 1,
+      payer: {
+        email: 'buyer@example.com',
+        identification: { type: 'RUT', number: '12.345.678-9' },
+      },
+    })
+    expect(JSON.stringify(out)).not.toContain('4111111111111111')
+    expect(JSON.stringify(out)).not.toContain('123')
+  })
+
+  it('allows a buyer without a RUT to pay by card', () => {
+    const out = normalizeMercadoPagoCardData({
+      token: 'mp-token',
+      issuer_id: '310',
+      payment_method_id: 'master',
+      installments: 1,
+      payer: { email: 'buyer@example.com' },
+    })
+
+    expect(out).toEqual({
+      token: 'mp-token',
+      issuerId: '310',
+      paymentMethodId: 'master',
+      installments: 1,
+      payer: { email: 'buyer@example.com', identification: null },
+    })
+  })
+
+  it('POSTs the pinned Mercado Pago body with its Idempotency-Key', async () => {
+    const m = mockFetch([res(200, {
+      order_id: 'o-mp',
+      provider_order_id: 'mp-order-1',
+      provider_payment_id: 'mp-payment-1',
+      status: 'APPROVED',
+      status_detail: 'accredited',
+      credits: 5000,
+    })])
+    vi.stubGlobal('fetch', m.impl)
+
+    const { order, idempotencyKey } = await createCardOrder('mp-clp-5000', 'mp-token', {
+      genKey: () => 'MP-KEY',
+      provider: 'mercadopago',
+      issuerId: '310',
+      paymentMethodId: 'master',
+      installments: 1,
+      payer: {
+        email: 'buyer@example.com',
+        identification: { type: 'RUT', number: '12.345.678-9' },
+      },
+      legalConsent: { terms: true, privacy: true },
+    })
+
+    const call = m.seen[0]
+    expect(call.url).toBe(BASE + '/payments/orders/card')
+    expect(call.opts.method).toBe('POST')
+    expect(call.opts.headers['Idempotency-Key']).toBe('MP-KEY')
+    expect(idempotencyKey).toBe('MP-KEY')
+    expect(JSON.parse(call.opts.body)).toEqual({
+      variant_id: 'mp-clp-5000',
+      provider: 'mercadopago',
+      card_token: 'mp-token',
+      issuer_id: '310',
+      payment_method_id: 'master',
+      installments: 1,
+      payer: {
+        email: 'buyer@example.com',
+        identification: { type: 'RUT', number: '12.345.678-9' },
+      },
+      legal_consent: { terms: true, privacy: true },
+      heart: 'metalgym88',
+    })
+    expect(order).toEqual({
+      orderId: 'o-mp',
+      providerOrderId: 'mp-order-1',
+      providerPaymentId: 'mp-payment-1',
+      status: 'APPROVED',
+      statusDetail: 'accredited',
+      credits: 5000,
+      redirectUrl: null,
+    })
+  })
+
+  it('reuses one key for Mercado Pago network retries', async () => {
+    const m = mockFetch(['network', res(200, { order_id: 'o-mp', status: 'PENDING' })])
+    vi.stubGlobal('fetch', m.impl)
+    await createCardOrder('mp-clp-5000', 'mp-token', {
+      genKey: () => 'MP-SAME-KEY',
+      provider: 'mercadopago',
+      issuerId: '310',
+      paymentMethodId: 'master',
+      installments: 1,
+      payer: {
+        email: 'buyer@example.com',
+        identification: { type: 'RUT', number: '12.345.678-9' },
+      },
+      legalConsent: { terms: true, privacy: true },
+    })
+    expect(m.impl).toHaveBeenCalledTimes(2)
+    expect(m.seen.map(call => call.opts.headers['Idempotency-Key'])).toEqual(['MP-SAME-KEY', 'MP-SAME-KEY'])
+    expect(m.seen[1].opts.body).toBe(m.seen[0].opts.body)
+  })
+})
+
+describe('Mercado Pago JS SDK loader', () => {
+  it('builds the documented v2 SDK URL and loads it lazily once', async () => {
+    const appended = []
+    const document = {
+      head: { appendChild: el => { appended.push(el) } },
+      createElement: () => ({}),
+    }
+    const builder = { create: vi.fn() }
+    const fakeWindow = {}
+    vi.stubGlobal('document', document)
+    vi.stubGlobal('window', fakeWindow)
+
+    expect(mercadopagoSdkUrl({ publicKey: 'APP_USR-public-test' })).toBe('https://sdk.mercadopago.com/js/v2')
+    expect(mercadopagoSdkUrl({ publicKey: '' })).toBe(null)
+    expect(mercadopagoSdkUrl(null)).toBe(null)
+
+    const loaded = loadMercadoPagoSdk({ publicKey: 'APP_USR-public-test' })
+    expect(appended).toHaveLength(1)
+    expect(appended[0].src).toBe('https://sdk.mercadopago.com/js/v2')
+    loadMercadoPagoSdk({ publicKey: 'APP_USR-public-test' })
+    expect(appended).toHaveLength(1)
+
+    fakeWindow.MercadoPago = vi.fn(function MercadoPago(key) {
+      this.publicKey = key
+      this.bricks = () => builder
+    })
+    appended[0].onload()
+    expect(await loaded).toBe(builder)
+    expect(fakeWindow.MercadoPago).toHaveBeenCalledWith('APP_USR-public-test')
+  })
+
+  it('does not load the SDK without a public key and reports a failed load honestly', async () => {
+    const appended = []
+    const document = {
+      head: { appendChild: el => { appended.push(el) } },
+      createElement: () => ({}),
+    }
+    vi.stubGlobal('document', document)
+    vi.stubGlobal('window', {})
+    expect(await loadMercadoPagoSdk({ publicKey: '' })).toBe(null)
+    expect(appended).toHaveLength(0)
+
+    const failed = loadMercadoPagoSdk({ publicKey: 'APP_USR-broken-loader' })
+    appended[0].onerror()
+    expect(await failed).toBe(null)
   })
 })
 
@@ -607,11 +891,50 @@ describe('voucher status mapping', () => {
     expect(statusKind('PENDING')).toBe('pending')
     expect(statusKind('PENDING_PAYMENT')).toBe('pending')
     expect(statusKind('PENDING_REVIEW')).toBe('pending_review')
+    expect(statusKind('AUTHORIZED')).toBe('pending')
+    expect(statusKind('IN_PROCESS')).toBe('pending')
+    expect(statusKind('PENDING_CHALLENGE')).toBe('pending_review')
     expect(statusKind('REJECTED')).toBe('rejected')
     expect(statusKind('CANCELED')).toBe('canceled')
     expect(statusKind('CANCELLED')).toBe('canceled')
     expect(statusKind('SOMETHING_NEW')).toBe('pending')
     expect(statusKind('')).toBe('pending')
+  })
+})
+
+describe('buyer-facing payment outcomes', () => {
+  it('maps approved and non-final Mercado Pago states to calm next steps', () => {
+    expect(paymentOutcome('approved', 'accredited')).toMatchObject({ kind: 'approved' })
+    expect(paymentOutcome('authorized', null)).toMatchObject({ kind: 'pending' })
+    expect(paymentOutcome('in_process', null)).toMatchObject({ kind: 'pending' })
+    expect(paymentOutcome('pending_challenge', null)).toMatchObject({ kind: 'pending_review' })
+    expect(paymentOutcome('pending', 'pending_challenge')).toMatchObject({ kind: 'pending_review' })
+
+    const challenge = paymentOutcome('pending_challenge', null)
+    expect(challenge.messageKey).toContain("bank is asking for an extra verification")
+    expect(es[challenge.messageKey]).toContain('verificación adicional')
+  })
+
+  it('turns Mercado Pago rejection details into plain language without exposing codes', () => {
+    const cases = [
+      ['cc_rejected_insufficient_amount', 'available funds'],
+      ['cc_rejected_bad_filled_card_number', 'card number'],
+      ['cc_rejected_bad_filled_security_code', 'security code'],
+      ['cc_rejected_bad_filled_date', 'expiration date'],
+      ['cc_rejected_high_risk', 'security reasons'],
+      ['cc_rejected_duplicated_payment', 'already registered'],
+      ['cc_rejected_3ds_mandatory', 'one more verification'],
+      ['rejected_by_bank', "bank didn't approve"],
+      ['cc_rejected_other_reason', "bank couldn't approve"],
+    ]
+
+    for (const [detail, phrase] of cases) {
+      const outcome = paymentOutcome('rejected', detail)
+      expect(outcome.kind).toBe('rejected')
+      expect(outcome.messageKey.toLowerCase()).toContain(phrase.toLowerCase())
+      expect(outcome.messageKey).not.toContain(detail)
+      expect(es[outcome.messageKey]).toBeTruthy()
+    }
   })
 })
 
@@ -672,7 +995,7 @@ describe('checkReturnedTopUp', () => {
     vi.stubGlobal('fetch', m.impl)
     const got = await checkReturnedTopUp()
     expect(m.seen[0].url).toBe(BASE + '/payments/orders/o-42/voucher?heart=metalgym88')
-    expect(got).toEqual({ orderId: 'o-42', voucher: { status: 'APPROVED' }, status: 'APPROVED', kind: 'approved' })
+    expect(got).toEqual({ orderId: 'o-42', voucher: { status: 'APPROVED' }, status: 'APPROVED', statusDetail: null, kind: 'approved' })
     expect(store.has(TOPUP_RECORD_KEY)).toBe(false) // spoken once, then gone
   })
 
@@ -689,6 +1012,7 @@ describe('checkReturnedTopUp', () => {
       orderId: 'o-42',
       voucher: { status: 'PENDING' },
       status: 'PENDING',
+      statusDetail: null,
       kind: 'canceled',
     })
   })
@@ -730,6 +1054,7 @@ describe('checkReturnedTopUp', () => {
       orderId: 'o-from-url',
       voucher: { status: 'APPROVED' },
       status: 'APPROVED',
+      statusDetail: null,
       kind: 'approved',
     })
   })
