@@ -61,15 +61,74 @@ server-minted token is not a valid rehearsal of the production path.
       legal consent checkbox.
 - [ ] `payments.mercadopago.public_key` + `access_token` set in the server config
       (never in the repo, never in the browser bundle).
-- [ ] `payments.mercadopago.webhook_secret` set — **pending**: reveal it in the panel
-      (Webhooks → Configurar notificaciones → reveal key). With an empty secret the webhook
-      fails closed on purpose: 401, no credit, loud log.
+- [x] `payments.mercadopago.webhook_secret` (production) and
+      `payments.mercadopago.webhook_secret_test` (development) provided by the owner and
+      loaded into the gitignored runtime config. Each webhook route reads its own key; the
+      test route must never validate with the production secret. With an empty secret the
+      webhook fails closed on purpose: 401, no credit, loud log.
 - [ ] The **test** credential pair of the production app (`6339923755616508`, environment
       selector "Prueba") copied as text, so the sandbox scenarios can be rehearsed without
       touching real money.
 - [ ] Webhook registered in the panel with the URL
       `https://api.djlabs.cl/payments/webhook/mercadopago` and the payment events
       (`payment.updated`, `payment.created`).
+
+## 3.1 Where to test — the exact URLs
+
+**Production is not testable yet.** Probed on 2026-11-19 (UTC-3):
+
+| Probe | Observed | Meaning |
+|---|---|---|
+| live bundle `assets/index-*.js` | **0** occurrences of `mercadopago` / `MercadoPago` / `cardPayment` | the Brick is **not deployed** |
+| `POST https://api.djlabs.cl/payments/webhook/mercadopago` | **404** | the adapter is **not deployed** |
+| `POST https://api.djlabs.cl/payments/webhook/mercadopago/test` | **404** | same |
+| `POST https://api.djlabs.cl/payments/orders/card` | **401** | the route exists but still belongs to the PayPal rail |
+
+`metalgym88.djlabs.cl` and `metaigym88.djlabs.cl` resolve to the same site.
+
+Once both halves are deployed, these are the test points:
+
+| What | Where |
+|---|---|
+| Pay from here | `https://metalgym88.djlabs.cl/#/home` → the credits chip or **See my wallet**. The wallet is a **sheet, not a route**: `#/wallet` hits the catch-all and falls back to `#/home` |
+| The quote that feeds the Brick | `GET https://api.djlabs.cl/payments/quote` (authenticated; carries `mercadopago.public_key` and the IVA-inclusive price) |
+| Card order capture | `POST https://api.djlabs.cl/payments/orders/card` + `Idempotency-Key` |
+| Webhook — production | `POST https://api.djlabs.cl/payments/webhook/mercadopago` — accepts only `live_mode === true` |
+| Webhook — rehearsal | `POST https://api.djlabs.cl/payments/webhook/mercadopago/test` — accepts only `live_mode === false`, validates with `webhook_secret_test` |
+| Ground truth for any payment | `https://api.mercadopago.com/v1/payments/{id}` (Bearer token, server-side only) |
+
+### Deploying both halves
+
+Front, from this worktree on `feat/mercadopago-gateway`:
+
+```bash
+npm test && npm run build     # 537/537, build green
+# upload dist/ over the front docroot — the same procedure used for the PayPal rail
+```
+
+Backend, from `api-independent` on `feat/mercadopago-gateway`, following
+`deploy/README.md` §3:
+
+```bash
+sudo rsync -a --exclude '.git' /path/to/api-independent/ /var/www/api.djlabs.cl/
+sudo chown -R www-data:www-data /var/www/api.djlabs.cl
+
+# /etc/api.djlabs.cl.env — the Mercado Pago block
+MERCADO_PAGO_ENABLED=1
+MERCADO_PAGO_ENVIRONMENT=production        # 'test' on a rehearsal box
+MERCADO_PAGO_PUBLIC_KEY=APP_USR-...
+MERCADO_PAGO_ACCESS_TOKEN=APP_USR-...
+MERCADO_PAGO_WEBHOOK_SECRET=<production key>
+MERCADO_PAGO_WEBHOOK_SECRET_TEST=<development key>
+
+# regenerate the config from the template, then reload the pool
+sudo -u www-data bash -c 'set -a; source /etc/api.djlabs.cl.env; set +a; \
+  php deploy/bin/generate-config.php --strict'
+sudo systemctl restart php8.3-fpm
+```
+
+The `rails_by_heart` line from §3 is the one that decides *this* product's rail:
+without it the installation default (`flow`) wins even with the adapter deployed.
 
 ## 4. The journey
 
