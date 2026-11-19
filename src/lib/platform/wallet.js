@@ -183,6 +183,7 @@ export function normalizeQuote(data) {
     detectedCurrency,
     defaultCurrency: currencyCode(source.default_currency),
     selectedProvider: stringOrNull(source.selected_provider)?.toLowerCase() || null,
+    providers: normalizeProviderKeys(source.providers),
     paypal,
     mercadopago,
     iva: normalizeIva(source.iva),

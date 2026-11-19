@@ -82,6 +82,7 @@ describe('payment quote', () => {
       detectedCurrency: 'CLP',
       defaultCurrency: 'CLP',
       selectedProvider: null,
+      providers: [],
       paypal: null,
       mercadopago: null,
       iva: null,
@@ -181,13 +182,12 @@ describe('payment quote', () => {
         { currency: 'CLP', available: true, providers: ['flow', 'mercadopago'] },
         { currency: 'USD', available: true, providers: ['paypal'] },
       ],
-      // A stale top-level providers field is not part of the authoritative contract.
-      providers: ['paypal'],
+      providers: [' PayPal ', 'paypal', 'unknown', 'mercadopago'],
       mercadopago: { public_key: 'APP_USR-public-test', environment: 'production' },
       iva: { net: 1000, iva: 190, total: 1190 },
     })
 
-    expect(out).not.toHaveProperty('providers')
+    expect(out.providers).toEqual(['paypal', 'mercadopago'])
     expect(out.selectedProvider).toBe('mercadopago')
     expect(out.currencies[0].providers).toEqual(['flow', 'mercadopago'])
     expect(out.currencies[1].providers).toEqual(['paypal'])
@@ -211,6 +211,23 @@ describe('payment quote', () => {
     expect(hasMercadoPagoRail(['flow', 'mercadopago'], null)).toBe(false)
     expect(hasMercadoPagoRail(['flow'], { publicKey: 'APP_USR-public-test' })).toBe(false)
     expect(hasMercadoPagoRail(['flow', 'mercadopago'], { publicKey: '  ' })).toBe(false)
+  })
+
+  it('detects the Mercado Pago card rail from the CLP currency row and quote key', () => {
+    const quote = normalizeQuote({
+      currencies: [
+        { currency: 'CLP', available: true, providers: ['mercadopago'] },
+        { currency: 'USD', available: true, providers: ['paypal'] },
+      ],
+      mercadopago: { public_key: 'APP_USR-public-test' },
+    })
+    const withoutPublicKey = normalizeQuote({
+      currencies: [{ currency: 'CLP', available: true, providers: ['mercadopago'] }],
+    })
+
+    expect(hasMercadoPagoRail(quote.currencies[0].providers, quote.mercadopago)).toBe(true)
+    expect(hasMercadoPagoRail(quote.currencies[1].providers, quote.mercadopago)).toBe(false)
+    expect(hasMercadoPagoRail(withoutPublicKey.currencies[0].providers, withoutPublicKey.mercadopago)).toBe(false)
   })
 
   it('never hands a card-rail currency to another gateway', () => {

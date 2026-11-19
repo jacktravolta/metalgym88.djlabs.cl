@@ -175,7 +175,8 @@ function WalletPanel({ close }) {
       if (!alive || !q) return
       const available = q.currencies.filter(c => c.available)
       const preferred = available.find(c => c.currency === q.defaultCurrency) || available[0] || null
-      const mpAvailable = hasMercadoPagoRail(q.providers, q.mercadopago)
+      const clpOption = available.find(c => c.currency === 'CLP') || null
+      const mpAvailable = hasMercadoPagoRail(clpOption?.providers ?? q.providers, q.mercadopago)
       const primary = mpAvailable
         ? available.find(c => c.currency === 'CLP') || preferred
         : preferred
@@ -214,7 +215,8 @@ function WalletPanel({ close }) {
   const mpInfo = quote ? quote.mercadopago : null
   // Mercado Pago charges CLP only: the card form belongs to that currency, so a
   // person who switched to USD gets that rail's own payment, never a CLP form.
-  const mpAvailable = currency === 'CLP' && hasMercadoPagoRail(quote?.providers, mpInfo)
+  const selectedProviders = selectedOption?.providers ?? quote?.providers
+  const mpAvailable = currency === 'CLP' && hasMercadoPagoRail(selectedProviders, mpInfo)
   // null when the selected currency has no rail other than the card form. The
   // wallet then hides "Other payment methods" instead of offering a gateway the
   // heart does not bill through.
