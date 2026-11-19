@@ -112,8 +112,27 @@ describe('payment quote', () => {
       presets: [1000, 5000, 10000], variants: [], providers: null,
     })
     expect(out.currencies[1].variants).toEqual([
-      { variantId: '67890', priceUsd: 10, priceUsdCents: 1000, credits: 10000, amountClp: 10000, label: 'US$10' },
+      { variantId: '67890', priceUsd: 10, priceUsdCents: 1000, credits: 10000, amountClp: 10000, label: 'US$10', iva: null },
     ])
+  })
+
+  it('keeps the IVA breakdown that belongs to a card price', () => {
+    const out = normalizeQuote({
+      default_currency: 'CLP',
+      currencies: [{
+        currency: 'CLP',
+        available: true,
+        providers: ['mercadopago'],
+        variants: [{
+          variant_id: 'mercadopago_5000',
+          amount_clp: 5000,
+          credits: 5000,
+          label: 'CLP $5.000',
+          iva: { net: 4202, iva: 798, total: 5000 },
+        }],
+      }],
+    })
+    expect(out.currencies[0].variants[0].iva).toEqual({ net: 4202, iva: 798, total: 5000 })
   })
 
   it('reads the integer price_usd_cents the API sends, so the price never depends on the label', () => {

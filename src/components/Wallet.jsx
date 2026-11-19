@@ -490,7 +490,11 @@ function WalletPanel({ close }) {
   const shown = movs ? movs.items : null
   const groups = shown ? groupMovements(shown) : []
   const usdPackList = selectedOption ? usdPacks(selectedOption) : []
-  const visibleIva = quote ? quote.iva : null
+  // The breakdown belongs to the price being paid: the picked card variant when
+  // the card rail leads, and nothing when the buyer switches to the gateway.
+  const visibleIva = mpAvailable && !showAlternativePayment
+    ? (mpVariant && mpVariant.iva) || (quote ? quote.iva : null)
+    : null
   const displayCurrency = currency || 'CLP'
   const fallbackTotal = mpAvailable && !showAlternativePayment
     ? mpAmount

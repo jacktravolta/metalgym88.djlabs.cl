@@ -71,6 +71,9 @@ function normalizeVariant(raw) {
     credits: numberOrNull(raw.credits),
     amountClp: numberOrNull(raw.amount_clp) ?? numberOrNull(raw.amountClp),
     label: stringOrNull(raw.label),
+    // A card price may carry its own IVA-inclusive breakdown. Per-variant beats
+    // the quote-level block: the buyer must see the tax of the price they pick.
+    iva: normalizeIva(raw.iva),
   }
 }
 
