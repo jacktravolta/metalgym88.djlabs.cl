@@ -209,16 +209,17 @@ export function availableProvidersForCurrency(currencyRow, quote) {
   return ['flow']
 }
 
-// The rail to name when the person chooses NOT to pay by card. Card rails
-// (Mercado Pago) never start from a redirect — their token is captured in the
-// form — so the fallback is the first advertised rail that is not a card one.
-// null means "say nothing": the server keeps its own default for that currency.
+// The rail to name when the person chooses NOT to pay by card. A currency the
+// heart bills through the in-app card form (Mercado Pago) has NO redirect
+// alternative: naming one would charge through a gateway the heart never chose
+// for that currency. null means "this currency has no other rail" — the wallet
+// hides the alternative instead of inventing one.
 export function alternativeRailProvider(currencyRow, quote) {
-  const candidate = availableProvidersForCurrency(currencyRow, quote).find(name => {
-    const normalized = stringOrNull(name)?.toLowerCase()
-    return !!normalized && normalized !== 'mercadopago' && normalized !== 'fake'
-  })
-  return candidate ? String(candidate).toLowerCase() : null
+  const advertised = availableProvidersForCurrency(currencyRow, quote)
+    .map(name => stringOrNull(name)?.toLowerCase())
+    .filter(Boolean)
+  if (advertised.includes('mercadopago')) return null
+  return advertised.find(name => name !== 'fake') || null
 }
 
 // A missing quote endpoint is expected while the API is being deployed. Every

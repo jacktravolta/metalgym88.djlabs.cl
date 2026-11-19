@@ -212,7 +212,13 @@ function WalletPanel({ close }) {
   const cardReady = cardWanted && cardState === 'ready'
 
   const mpInfo = quote ? quote.mercadopago : null
-  const mpAvailable = hasMercadoPagoRail(quote?.providers, mpInfo)
+  // Mercado Pago charges CLP only: the card form belongs to that currency, so a
+  // person who switched to USD gets that rail's own payment, never a CLP form.
+  const mpAvailable = currency === 'CLP' && hasMercadoPagoRail(quote?.providers, mpInfo)
+  // null when the selected currency has no rail other than the card form. The
+  // wallet then hides "Other payment methods" instead of offering a gateway the
+  // heart does not bill through.
+  const alternativeProvider = alternativeRailProvider(selectedOption, quote)
   const mpOption = quote ? quote.currencies.find(c => c.currency === 'CLP' && c.available) : null
   const mpVariants = mpOption ? mpOption.variants : []
   const mpVariant = mpVariants.find(v => v.variantId === mpVariantId) || mpVariants[0] || null
@@ -358,12 +364,17 @@ function WalletPanel({ close }) {
       const clamped = clampAmount(amount, limits)
       if (!clamped) { setTopupErr(t('Choose an amount first — pick a pack or type one.')); return }
       orderAmount = clamped
-      // This is the redirect rail. Naming it keeps the server from resolving
-      // the heart's default, which may be the in-app card rail and cannot be
-      // paid from a redirect screen.
+      // This branch is the redirect rail, and a currency the heart bills through
+      // the in-app card form has none. Sending it anyway would charge through a
+      // gateway the heart never chose for CLP, so we say where the payment lives.
+      if (!alternativeProvider) {
+        setShowAlternativePayment(false)
+        setTopupErr(t('This recharge is paid with a card in the form above — continue there.'))
+        return
+      }
       orderOptions = {
         ...orderOptions,
-        provider: alternativeRailProvider(selectedOption, quote),
+        provider: alternativeProvider,
       }
     } else {
       setTopupErr(t('No recharge options are available right now.'))
@@ -599,9 +610,9 @@ function WalletPanel({ close }) {
               : t('Add {0} in credits', displayMoney(mpAmount))}
         </Button>
         {mpErr && <div className="dim small" style={{ marginTop: 8 }}>{mpErr}</div>}
-        <Button variant="ghost" className="dim" style={{ marginTop: 8 }} onClick={() => { setShowAlternativePayment(true); setTopupErr(null); setCardErr(null); setMpErr(null) }}>
+        {alternativeProvider ? <Button variant="ghost" className="dim" style={{ marginTop: 8 }} onClick={() => { setShowAlternativePayment(true); setTopupErr(null); setCardErr(null); setMpErr(null) }}>
           {t('Other payment methods')}
-        </Button>
+        </Button> : null}
       </> : <>
       {quote && <div style={{ margin: '0 2px 12px' }}>
         {quote.detectedCountry && <div className="muted small" style={{ marginBottom: 8 }}>

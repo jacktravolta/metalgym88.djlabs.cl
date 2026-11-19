@@ -213,11 +213,13 @@ describe('payment quote', () => {
     expect(hasMercadoPagoRail(['flow', 'mercadopago'], { publicKey: '  ' })).toBe(false)
   })
 
-  it('falls back to the redirect rail the person can actually finish', () => {
-    const clp = { currency: 'CLP', providers: ['flow', 'mercadopago'] }
-    expect(alternativeRailProvider(clp, null)).toBe('flow')
-    // The card rail alone offers no redirect: say nothing and let the server answer.
+  it('never hands a card-rail currency to another gateway', () => {
+    // The heart bills CLP through the card form: there is no redirect rail to
+    // offer, because the person would be charged through a gateway it never chose.
+    expect(alternativeRailProvider({ currency: 'CLP', providers: ['flow', 'mercadopago'] }, null)).toBe(null)
     expect(alternativeRailProvider({ currency: 'CLP', providers: ['mercadopago'] }, null)).toBe(null)
+    // A heart that really bills that currency by redirect keeps its rail.
+    expect(alternativeRailProvider({ currency: 'CLP', providers: ['flow'] }, null)).toBe('flow')
     // The offline fake is never a rail a person can pay with.
     expect(alternativeRailProvider({ currency: 'CLP', providers: ['fake'] }, null)).toBe(null)
     expect(alternativeRailProvider({ currency: 'USD' }, { paypal: { clientId: 'sb-client' } })).toBe('paypal')

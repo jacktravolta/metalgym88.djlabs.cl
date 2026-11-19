@@ -718,6 +718,7 @@ export default {
   "The card form couldn't be loaded — try another card or use another payment method.": 'No se pudo cargar el formulario de tarjeta — prueba con otra tarjeta o usa otro método de pago.',
   "The card form isn't available right now — you can use another payment method.": 'El formulario de tarjeta no está disponible ahora — puedes usar otro método de pago.',
   'Other payment methods': 'Otras formas de pago',
+  'This recharge is paid with a card in the form above — continue there.': 'Esta recarga se paga con tarjeta en el formulario de arriba — continúa ahí.',
   'Back to card payment': 'Volver al pago con tarjeta',
   'Your recharge is being confirmed': 'Tu recarga está en confirmación',
   'The card payment was authorized. The credits will appear once the bank confirms the payment.': 'El pago con tarjeta fue autorizado. Los créditos aparecerán cuando el banco confirme el pago.',
