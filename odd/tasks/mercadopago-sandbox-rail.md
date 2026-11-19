@@ -7,14 +7,25 @@ against the live gateway on 2026-11-18.
 
 ## 1. The credential model (verified — read this first)
 
-| Credential pair | Reads the API | Creates payments |
-|---|---|---|
-| Development pair (`APP_USR-3645…`, `TESTUSER…` account) | yes | **no** — 401 `Unauthorized use of live credentials` (cause code 7) on every `POST /v1/payments`, offline methods included |
-| Production pair (`APP_USR-6339…`, account `1152415668`, site `MLC`) | yes | **yes** — real payments are created |
+| Credential pair | Belongs to | Reads the API | Creates payments |
+|---|---|---|---|
+| Pair `APP_USR-3645…` (app `3645296097463772`, user `3853434071`, `TESTUSER…`) | a **separate test-user account** | yes | **no** — 401 `Unauthorized use of live credentials` (cause code 7) on every `POST /v1/payments`, offline methods included |
+| Pair `APP_USR-6339…` (app `6339923755616508`, user `1152415668`, site `MLC`) | the **production seller account** | yes | **yes** — real payments are created |
 
-Mercado Pago Chile does not support test credentials for the Checkout API card flow, and
-there is no `api.sandbox.mercadopago.com` anymore: one host, `api.mercadopago.com`, and the
-credential selects the mode. The development pair is still useful for reading (payment
+The 401 is **not** a Mercado Pago limitation for Checkout API in Chile: the official guide
+for Checkout API (Payments API) says a test purchase must use *the test credentials of the
+production user* ("las credenciales de prueba de su usuario de producción"). The pair we
+tried belongs to a different account (a `TESTUSER` account), so the API refuses it for
+live-style payment creation.
+
+**The missing piece is therefore a third pair**: in the panel of the production app
+(`6339923755616508`), switch the environment selector to **Prueba**, complete the pending
+task **"Configurar ambiente de desarrollo"**, and copy that app's test **Public Key** and
+**Access Token**. That pair runs with `live_mode: false` and the APRO/OTHE/CALL scenarios
+work as documented.
+
+There is no `api.sandbox.mercadopago.com` anymore: one host, `api.mercadopago.com`, and
+the credential selects the mode. The `TESTUSER` pair is still useful for reading (payment
 lookups, the account profile).
 
 The one `approved` payment visible in the development account is **not** a card payment: it
@@ -47,8 +58,11 @@ server-minted token is not a valid rehearsal of the production path.
 - [ ] `payments.mercadopago.public_key` + `access_token` set in the server config
       (never in the repo, never in the browser bundle).
 - [ ] `payments.mercadopago.webhook_secret` set — **pending**: reveal it in the panel
-      (Webhooks → reveal key). With an empty secret the webhook fails closed on purpose:
-      401, no credit, loud log.
+      (Webhooks → Configurar notificaciones → reveal key). With an empty secret the webhook
+      fails closed on purpose: 401, no credit, loud log.
+- [ ] The **test** credential pair of the production app (`6339923755616508`, environment
+      selector "Prueba") copied as text, so the sandbox scenarios can be rehearsed without
+      touching real money.
 - [ ] Webhook registered in the panel with the URL
       `https://api.djlabs.cl/payments/webhook/mercadopago` and the payment events
       (`payment.updated`, `payment.created`).
@@ -87,7 +101,7 @@ measurement, which is currently at 0/100 and blocks the go-live checklist on MP'
 
 | Symptom | Cause | Action |
 |---|---|---|
-| `401 Unauthorized use of live credentials` on `POST /v1/payments` | the development credential pair was used | use the production pair; there is no test-credential path for card payments in CL |
+| `401 Unauthorized use of live credentials` on `POST /v1/payments` | the credential belongs to a `TESTUSER` account, not to the production user | use the production pair, or the production app's own "Prueba" pair (same account, test environment) |
 | `400 invalid_token` | wrong access token | copy it as text from the panel, never from a screenshot |
 | `403 PA_UNAUTHORIZED_RESULT_FROM_POLICIES` (`blocked_by: PolicyAgent`) | account-level policy | check the panel for pending account requirements |
 | `rejected` / `cc_rejected_high_risk` | the risk engine judged the simulated card or the request context | run the journey through the Brick in a browser; then fall back to one real card |
