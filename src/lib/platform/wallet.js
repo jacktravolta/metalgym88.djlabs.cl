@@ -605,6 +605,7 @@ export function buildMercadoPagoPayer(email, rut, brickPayer) {
 // The official Checkout Bricks SDK v2. The public key comes from the quote;
 // the script itself is the same for test and production credentials.
 const MERCADOPAGO_SDK_URL = 'https://sdk.mercadopago.com/js/v2'
+const MERCADOPAGO_CSP_NONCE_META = 'metalgym88-csp-nonce'
 const mercadoPagoSdkLoads = new Map()
 
 export function mercadopagoSdkUrl(mercadopago) {
@@ -612,10 +613,24 @@ export function mercadopagoSdkUrl(mercadopago) {
   return stringOrNull(info.publicKey) ? MERCADOPAGO_SDK_URL : null
 }
 
+// The Pages middleware publishes the per-response CSP nonce in a dedicated
+// meta element. A host without that middleware simply omits the option.
+export function mercadoPagoCspNonce() {
+  if (typeof document === 'undefined' || typeof document.querySelector !== 'function') return null
+  const meta = document.querySelector(`meta[name="${MERCADOPAGO_CSP_NONCE_META}"]`)
+  const nonce = meta && typeof meta.getAttribute === 'function' ? meta.getAttribute('content') : null
+  return stringOrNull(nonce)
+}
+
 function mercadoPagoBuilder(publicKey) {
   if (typeof window === 'undefined' || typeof window.MercadoPago !== 'function') return null
   try {
-    const sdk = new window.MercadoPago(publicKey)
+    // deviceProfileCspNonce is implemented by the official Mercado Pago SDK v2
+    // bundle, but it is absent from the vendor's public TypeScript definitions.
+    const nonce = mercadoPagoCspNonce()
+    const sdk = nonce
+      ? new window.MercadoPago(publicKey, { deviceProfileCspNonce: nonce })
+      : new window.MercadoPago(publicKey)
     return sdk && typeof sdk.bricks === 'function' ? sdk.bricks() : null
   } catch {
     return null

@@ -1,12 +1,21 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { CANONICAL_CSP, withCspNonce } from '../functions/_middleware.js'
 
 const projectRootUrl = new URL('../', import.meta.url)
-// Mercado Pago SDK v2 requires both exact inline-bootstrap hashes observed across
-// production smokes. Keep the allowance exact: no unsafe execution or broad hosts.
-const mercadoPagoSdkBootstrapHashes = [
+
+// The bootstrap returned by /devices/widgets changes between loads. These
+// hashes are evidence of past runs, not a stable authorization mechanism.
+const unstableMercadoPagoSdkBootstrapHashes = [
   "'sha256-A3HQMGCaYTLR55HokyyZBduy+DilrRCMRE/WGHXc5i4='",
   "'sha256-u3n8DlRExTbGVwTPaH6dx4VS3cNAI9vzqGuYZ9KG820='",
+  "'sha256-GaxpzAIh22wwKY6rJ2h4OH/r40gMFKEsvsZpcf7YEOY='",
+]
+
+const firstPartyInlineScriptHashes = [
+  "'sha256-jYHg7tXSuuVUqjy+JeRT8vyG97+Spkw5IFHdQEBbmrw='",
+  "'sha256-Y8gZRRAdU1zK6frCTDDEcEN+fvPKQZLtSHr+o1pW1Og='",
+  "'sha256-GRqTQiLptG6wuhtB52asFIQM5iVu0U4w9MQbYH/xszE='",
 ]
 
 function read(relativePath) {
@@ -51,11 +60,11 @@ describe('static-host Content Security Policy', () => {
     expect(rootHeaders).toBe(publicHeaders)
   })
 
-  it('allows both observed Mercado Pago SDK v2 inline bootstrap hashes without weakening script execution', () => {
+  it('rejects unstable Mercado Pago bootstrap hashes and unsafe script execution', () => {
     for (const [source, policy] of policies) {
       const scriptSources = directives(policy).get('script-src')
-      for (const hash of mercadoPagoSdkBootstrapHashes) {
-        expect(scriptSources, `${source}: ${hash}`).toContain(hash)
+      for (const hash of unstableMercadoPagoSdkBootstrapHashes) {
+        expect(scriptSources, `${source}: ${hash}`).not.toContain(hash)
       }
       expect(scriptSources, source).not.toContain("'unsafe-inline'")
       expect(scriptSources, source).not.toContain("'unsafe-eval'")
@@ -66,6 +75,15 @@ describe('static-host Content Security Policy', () => {
       )
       expect(scriptSources, source).toContain('https://sdk.mercadopago.com')
       expect(scriptSources, source).toContain('https://http2.mlstatic.com')
+    }
+  })
+
+  it('retains exactly the three first-party inline script hashes', () => {
+    for (const [source, policy] of policies) {
+      const scriptSources = directives(policy).get('script-src')
+      const hashes = scriptSources.filter((value) => value.startsWith("'sha256-"))
+      expect(new Set(hashes), source).toEqual(new Set(firstPartyInlineScriptHashes))
+      expect(hashes, source).toHaveLength(firstPartyInlineScriptHashes.length)
     }
   })
 
@@ -85,5 +103,23 @@ describe('static-host Content Security Policy', () => {
     for (const name of metaPolicy.keys()) {
       expect(headerPolicy.has(name), name).toBe(true)
     }
+  })
+
+  it('keeps the middleware canonical policy aligned with the response-header policy', () => {
+    expect(CANONICAL_CSP).toBe(policyFromHeaders(rootHeaders))
+  })
+
+  it('adds only a nonce to script-src and preserves every non-script directive', () => {
+    const nonce = 'dGVzdC1ub25jZS12YWx1ZQ=='
+    const base = directives(CANONICAL_CSP)
+    const transformed = directives(withCspNonce(CANONICAL_CSP, nonce))
+
+    for (const [name, sources] of base) {
+      if (name === 'script-src') continue
+      expect(transformed.get(name), name).toEqual(sources)
+    }
+    expect(transformed.get('script-src')).toEqual([...base.get('script-src'), `'nonce-${nonce}'`])
+    expect(transformed.get('script-src')).not.toContain("'unsafe-inline'")
+    expect(transformed.get('script-src')).not.toContain("'unsafe-eval'")
   })
 })

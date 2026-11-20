@@ -249,11 +249,12 @@ Complete the visible 1,000 CLP credit-purchase journey on the already-active Mer
 - [x] **T10 — Isolate the Brick/RUT fix.** Backport only the Mercado Pago initialization and RUT validation behavior onto a branch based on the deployed front revision; exclude unrelated privacy work.
 - [x] **T11 — Verify the targeted front.** Run focused wallet tests, the full unit suite, and a production build. Record the observed results.
 - [ ] **T12 — Obtain the missing live inputs.** Record explicit authorization for 1,000 CLP, Mercado Pago production, a human-approved production card, and the payer RUT. Card values must come from a local protected file, never chat or reports.
-- [ ] **T13 — Deploy and smoke-test.** Revision `49f4707324e0ce5ec3d5b6b48bb910481bd06e6c` (`49f4707`) is deployed, but the Brick still did not mount in the authorized no-order/no-charge smoke: Chrome reported two CSP violations requesting the same additional Mercado Pago SDK v2 inline-bootstrap hash. The smoke sent zero order/provider-payment POSTs. Keep this task open until the corrected front with both observed hashes is deployed, the Brick mounts, and the consent, amount, IVA-inclusive price, and RUT request are verified before any order is created. The public key returned by the quote is independently rejected by Mercado Pago with `404 public key not found`; that backend credential/configuration blocker is outside this front correction.
+- [ ] **T13 — Deploy and smoke-test.** Revision `49f4707324e0ce5ec3d5b6b48bb910481bd06e6c` (`49f4707`) is deployed, but the Brick still did not mount in the authorized no-order/no-charge smoke: Chrome reported two CSP violations requesting the same additional Mercado Pago SDK v2 inline-bootstrap hash. The smoke sent zero order/provider-payment POSTs. The hash-only corrections in `49f4707` and `762876c` are now rejected as unstable; keep this task open until the stable per-response nonce front is deployed, the Brick mounts, and the consent, amount, IVA-inclusive price, and RUT request are verified before any order is created. The public key returned by the quote is independently rejected by Mercado Pago with `404 public key not found`; that backend credential/configuration blocker is outside this front correction.
 - [ ] **T14 — Complete one CDP purchase.** Use one unique idempotency key, submit the Brick token once, wait for the verified webhook, and avoid retries after a provider status exists.
 - [ ] **T15 — Prove the credit.** Verify the order, voucher, balance delta, and exactly one `PURCHASE_CREDIT` movement for 1,000 credits.
 - [x] **T16 — Correct and protect the front CSP for the Mercado Pago SDK bootstrap.** Add only the hash observed in the browser to the mirrored static-host policies, preserve the restrictive script policy, and add a regression that rejects drift or omission. Revision `49f4707` completed and deployed that first correction; its post-deploy smoke exposed the remaining required hash tracked by T17.
 - [x] **T17 — Correct the remaining Mercado Pago SDK bootstrap hash in front source.** Add the second exact hash observed in the authorized no-order smoke to every active/static-host CSP copy while retaining the first, and extend the semantic regression to require both hashes, keep the copies aligned, and reject unsafe script execution or new broad script wildcards. The source correction is complete in this work unit; deployment and smoke remain part of T13.
+- [x] **T18 — Replace unstable Mercado Pago SDK bootstrap hashes with a per-response CSP nonce.** Remove the hash allowances introduced by `49f4707` and `762876c`, generate a fresh unpredictable nonce for every HTML response in the root Cloudflare Pages middleware, write the identical nonce-bearing policy to the response header and HTML meta, and pass the nonce to the SDK only when the page published it. The source correction is complete; deployment and the no-order smoke remain part of T13.
 
 ### Acceptance criteria
 
@@ -335,7 +336,7 @@ The observed RED was the focused CSP test failing because the hash was absent fr
 - Front revision `49f4707324e0ce5ec3d5b6b48bb910481bd06e6c` (`49f4707`) is deployed on `metalgym88.djlabs.cl`.
 - The authorized no-order/no-charge smoke observed **two** CSP violations. Both requested the same additional exact Mercado Pago SDK v2 inline-bootstrap hash:
   `sha256-u3n8DlRExTbGVwTPaH6dx4VS3cNAI9vzqGuYZ9KG820=`.
-- The previously deployed exact hash `sha256-A3HQMGCaYTLR55HokyyZBduy+DilrRCMRE/WGHXc5i4=` remains required and must stay allowed.
+- The previously deployed exact hash `sha256-A3HQMGCaYTLR55HokyyZBduy+DilrRCMRE/WGHXc5i4=` was still required by that revision; T18 later removes it as an unstable per-load allowance.
 - The Brick still did **not** mount. The smoke sent zero order/provider-payment POSTs, so it created no order and caused no charge.
 - Independently, Mercado Pago's `/v1/payment_methods/search` returned `404 public key not found` for the public key returned by the quote. This backend credential/configuration blocker is unchanged and is not addressed by T17.
 
@@ -357,6 +358,37 @@ The observed RED was the focused CSP test failing because the hash was absent fr
 | Build readback | source → `dist/` inspection | passed — `dist/_headers` is byte-identical to `public/_headers`; both exact hashes are present in `dist/_headers`, `dist/index.html`, and `dist/404.html` |
 | Runtime harness | N/A | deployment and the production no-order/no-charge smoke are owned by the parent session; this worker did not deploy, authenticate, create an order, or charge |
 
-### Next step
+### Historical T17 next step (superseded by T18)
 
-T13 remains incomplete because the Brick has not mounted. The parent must deploy the new T17 work-unit commit and rerun the authorized no-order/no-charge smoke; if the Brick mounts, record the consent, amount, IVA-inclusive price, and RUT request without submitting an order. The backend public-key 404 and T12's protected card/RUT inputs remain separate prerequisites for T14–T15.
+At that revision, T13 remained incomplete because the Brick had not mounted. The planned T17 deployment and no-order/no-charge smoke were superseded by the stable nonce correction below; the backend public-key 404 and T12's protected card/RUT inputs remain separate prerequisites for T14–T15.
+
+### 2026-11-20 — stable per-response CSP nonce correction (T18)
+
+#### Why the hash-only revisions were rejected
+
+- `49f4707` authorized the first observed Mercado Pago SDK v2 bootstrap hash. `762876c` authorized a second one. A later authorized no-order smoke required yet another hash, `sha256-GaxpzAIh22wwKY6rJ2h4OH/r40gMFKEsvsZpcf7YEOY=`, proving that the same bootstrap authorization changed again.
+- The outer `https://sdk.mercadopago.com/js/v2` bundle is stable, but `POST /v1/devices/widgets` returns dynamically generated inline bootstrap content. Per-load hashes therefore describe past responses rather than a stable CSP contract.
+- Both hash-only revisions remain auditable history, but they are rejected as the durable solution and their Mercado Pago hashes are removed from every static policy copy.
+
+#### T18 source correction
+
+- `functions/_middleware.js` is the root Cloudflare Pages middleware. For every HTML response it generates a fresh 128-bit unpredictable nonce, transforms the canonical policy by adding only `'nonce-…'` to `script-src`, writes the identical policy to the response header and HTML meta, and publishes the nonce in a dedicated `metalgym88-csp-nonce` meta element.
+- The middleware preserves the response status and unrelated headers, recomputes the byte length, removes stale cache validators, ignores conditional document validators before the asset lookup, and serves the nonce-bearing document with `Cache-Control: no-store, max-age=0`. Non-HTML responses pass through unchanged.
+- `_headers`, `public/_headers`, and `index.html` no longer trust any observed Mercado Pago bootstrap hash. The three legitimate first-party inline-script hashes, every existing host allowance, and every existing non-script directive remain unchanged. No `'unsafe-inline'`, `'unsafe-eval'`, broad script wildcard, or weakened unrelated directive was added to `script-src`.
+- `src/lib/platform/wallet.js` reads the page nonce and passes it to `new window.MercadoPago(publicKey, options)` as `options.deviceProfileCspNonce` only when the nonce meta exists. Without that meta, the constructor receives only the public key.
+- Vendor uncertainty is explicit: the current official Mercado Pago CDN bundle implements and applies `deviceProfileCspNonce` to its dynamically inserted widget script, but the option is absent from the vendor's public TypeScript definitions (`@types/mercadopago-sdk-js` 2.0.17). The regression therefore pins the observed constructor behavior without pretending it is a published type contract.
+- The static Vite build still copies `public/_headers` to `dist/_headers` and produces `dist/index.html` plus `dist/404.html`. Vite does not copy the repository-root `functions/` directory into `dist`; deployment must use a Cloudflare Pages Functions-capable path that includes that root directory.
+
+#### T18 correction checks
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Focused middleware, CSP, and wallet regressions | `npx vitest run functions/_middleware.test.js scripts/csp.test.js src/lib/platform/wallet.test.js` | passed — 96/96 tests in 3 files; 1.62s |
+| Full unit suite | `npm test` | passed — 560/560 tests in 38 files; 24.56s |
+| Production build | `npm run build` | passed — 138 modules transformed; built in 2.42s (Vite reported the pre-existing chunk-size warning) |
+| Build and middleware readback | source → `dist/` inspection + local middleware invocation | passed — `dist/_headers` is byte-identical to `public/_headers`; `dist/_headers`, `dist/index.html`, and `dist/404.html` retain exactly the three first-party hashes and contain none of the three unstable Mercado Pago hashes; the built index produced matching response-header/meta/app nonces with 16 random bytes |
+| Runtime harness | N/A | deployment and the production no-order/no-charge smoke are owned by the parent session; this worker did not deploy, authenticate, create an order, or charge |
+
+#### Next step
+
+T13 remains incomplete. The parent must deploy this T18 work unit through a Cloudflare Pages Functions-capable deployment path that includes the repository-root `functions/` directory, then rerun the authorized no-order/no-charge smoke. If the Brick mounts, record the consent, amount, IVA-inclusive price, and RUT request without submitting an order. The backend public-key `404 public key not found` and T12's protected card/RUT inputs remain separate prerequisites for T14–T15.

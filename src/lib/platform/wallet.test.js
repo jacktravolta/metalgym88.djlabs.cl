@@ -878,6 +878,7 @@ describe('Mercado Pago JS SDK loader', () => {
     const document = {
       head: { appendChild: el => { appended.push(el) } },
       createElement: () => ({}),
+      querySelector: () => null,
     }
     const builder = { create: vi.fn() }
     const fakeWindow = {}
@@ -900,7 +901,32 @@ describe('Mercado Pago JS SDK loader', () => {
     })
     appended[0].onload()
     expect(await loaded).toBe(builder)
-    expect(fakeWindow.MercadoPago).toHaveBeenCalledWith('APP_USR-public-test')
+    expect(fakeWindow.MercadoPago.mock.calls[0]).toEqual(['APP_USR-public-test'])
+  })
+
+  it('passes the page CSP nonce to the SDK constructor when the middleware published one', async () => {
+    const builder = { create: vi.fn() }
+    const meta = { getAttribute: vi.fn(() => 'page-csp-nonce') }
+    const document = {
+      head: { appendChild: vi.fn() },
+      createElement: () => ({}),
+      querySelector: vi.fn(() => meta),
+    }
+    const fakeWindow = {
+      MercadoPago: vi.fn(function MercadoPago(key) {
+        this.publicKey = key
+        this.bricks = () => builder
+      }),
+    }
+    vi.stubGlobal('document', document)
+    vi.stubGlobal('window', fakeWindow)
+
+    expect(await loadMercadoPagoSdk({ publicKey: 'APP_USR-public-test' })).toBe(builder)
+    expect(document.querySelector).toHaveBeenCalledWith('meta[name="metalgym88-csp-nonce"]')
+    expect(fakeWindow.MercadoPago.mock.calls[0]).toEqual([
+      'APP_USR-public-test',
+      { deviceProfileCspNonce: 'page-csp-nonce' },
+    ])
   })
 
   it('does not load the SDK without a public key and reports a failed load honestly', async () => {
