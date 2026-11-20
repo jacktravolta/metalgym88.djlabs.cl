@@ -211,6 +211,9 @@ function WalletPanel({ close }) {
   const shown = movs ? movs.items : null
   const groups = shown ? groupMovements(shown) : []
   const quoteCurrencies = quote ? quote.currencies : []
+  // The recharge rails are CLP (Mercado Pago) and USD (PayPal). A quote that
+  // advertises another currency is never offered: the pay button would have no
+  // honest label and no rail behind it.
   const currencyRows = ['CLP', 'USD'].map(code => (
     quoteCurrencies.find(option => option.currency === code) || {
       currency: code,
@@ -219,7 +222,7 @@ function WalletPanel({ close }) {
       variants: [],
       providers: [],
     }
-  )).concat(quoteCurrencies.filter(option => option.currency !== 'CLP' && option.currency !== 'USD'))
+  ))
   const variantList = selectedOption ? selectedOption.variants : []
   const visibleIva = selectedVariant?.iva || (currency === 'CLP' && quote ? quote.iva : null)
   const displayCurrency = currency || 'CLP'
