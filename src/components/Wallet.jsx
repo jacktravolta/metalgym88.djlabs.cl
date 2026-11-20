@@ -28,7 +28,7 @@ import {
   fetchMovements, fetchTariffs, fetchLimits, fetchQuote, clampAmount, formatMoney,
   usdPriceLabel, usdPacks, showsCustomAmount, groupMovements,
   createOrder, createCardOrder, extractCardToken, normalizeMercadoPagoCardData,
-  hasMercadoPagoRail, alternativeRailProvider, loadPaypalSdk, loadMercadoPagoSdk, paymentOutcome, goToPayment,
+  hasMercadoPagoRail, alternativeRailProvider, cardFormUnavailableMessageKey, loadPaypalSdk, loadMercadoPagoSdk, paymentOutcome, goToPayment,
   buildMercadoPagoInitialization, buildMercadoPagoPayer,
   saveTopupRecord, checkReturnedTopUp,
 } from '../lib/platform/wallet.js'
@@ -306,7 +306,7 @@ function WalletPanel({ close }) {
             onSubmit: () => Promise.resolve(),
             onError: error => {
               if (!alive) return
-              setMpErr(t("The card form couldn't be loaded — try another card or use another payment method."))
+              setMpErr(t(cardFormUnavailableMessageKey(alternativeProvider, { includeCardRetry: true })))
               if (error && error.type === 'critical') setMpState('unavailable')
             },
           },
@@ -473,7 +473,7 @@ function WalletPanel({ close }) {
     }
     const controller = mpBrick.current
     if (!controller || typeof controller.getFormData !== 'function') {
-      setMpErr(t("The card form isn't available right now — you can use another payment method."))
+      setMpErr(t(cardFormUnavailableMessageKey(alternativeProvider)))
       return
     }
     mpBusyRef.current = true
@@ -486,7 +486,7 @@ function WalletPanel({ close }) {
       }
       const payer = buildMercadoPagoPayer(userEmail, cardData.payer)
       if (!payer) {
-        setMpErr(t("The card form isn't available right now — you can use another payment method."))
+        setMpErr(t(cardFormUnavailableMessageKey(alternativeProvider)))
         return
       }
       const { order } = await createCardOrder(mpVariant.variantId, cardData.token, {
@@ -603,7 +603,7 @@ function WalletPanel({ close }) {
           {t('Loading the card form…')}
         </div>}
         {mpState === 'unavailable' && <div className="dim small" style={{ margin: '0 2px 8px' }}>
-          {t("The card form isn't available right now — you can use another payment method.")}
+          {t(cardFormUnavailableMessageKey(alternativeProvider))}
         </div>}
         <Button
           variant="primary"

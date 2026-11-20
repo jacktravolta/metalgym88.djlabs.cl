@@ -6,6 +6,7 @@ import {
   normalizeQuote, fetchQuote, formatMoney,
   usdPriceLabel, usdPacks, showsCustomAmount, normalizePaypalInfo,
   normalizeMercadoPagoInfo, normalizeProviderKeys, normalizeIva, hasMercadoPagoRail, alternativeRailProvider,
+  cardFormUnavailableMessageKey,
   buildMercadoPagoInitialization, buildMercadoPagoPayer,
   paymentProviderMethod, availableProvidersForCurrency, selectInitialCurrency,
   normalizeMovements, fetchMovements, movementDirection, movementLabel, groupMovements,
@@ -355,6 +356,32 @@ describe('payment quote', () => {
     expect(formatMoney(1234, 'CLP')).toBe('1234')
     expect(formatMoney(10, 'USD')).toBe('US$10.00')
     expect(formatMoney(1234.5, 'USD')).toBe('US$1,234.50')
+  })
+})
+
+describe('card form unavailable copy', () => {
+  it('never promises another payment method when no alternative rail exists', () => {
+    for (const alternative of [null, undefined, '', '   ']) {
+      const copy = cardFormUnavailableMessageKey(alternative)
+      expect(copy).not.toContain('another payment method')
+      expect(copy).toContain('try again')
+    }
+  })
+
+  it('names the alternative payment method when a real rail exists', () => {
+    expect(cardFormUnavailableMessageKey('flow')).toContain('another payment method')
+  })
+
+  it('offers only a retry when the card form fails to load and no alternative exists', () => {
+    const copy = cardFormUnavailableMessageKey(null, { includeCardRetry: true })
+    expect(copy).toContain('try another card')
+    expect(copy).not.toContain('another payment method')
+  })
+
+  it('offers both a retry and the alternative method when a rail exists', () => {
+    const copy = cardFormUnavailableMessageKey('flow', { includeCardRetry: true })
+    expect(copy).toContain('try another card')
+    expect(copy).toContain('another payment method')
   })
 })
 

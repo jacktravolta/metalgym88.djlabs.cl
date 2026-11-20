@@ -223,6 +223,22 @@ export function alternativeRailProvider(currencyRow, quote) {
   return advertised.find(name => name !== 'fake') || null
 }
 
+// The card form's own failure copy depends on whether the buyer really has
+// another rail to fall back on. Promising "another payment method" when
+// alternativeRailProvider is null would send the person looking for a button
+// that does not exist, so the no-alternative wording only offers a retry.
+export function cardFormUnavailableMessageKey(alternativeProvider, { includeCardRetry = false } = {}) {
+  const hasAlternative = typeof alternativeProvider === 'string' && alternativeProvider.trim() !== ''
+  if (includeCardRetry) {
+    return hasAlternative
+      ? "The card form couldn't be loaded — try another card or use another payment method."
+      : "The card form couldn't be loaded — try another card or try again in a moment."
+  }
+  return hasAlternative
+    ? "The card form isn't available right now — you can use another payment method."
+    : "The card form isn't available right now — please try again in a moment."
+}
+
 // A missing quote endpoint is expected while the API is being deployed. Every
 // failure is therefore quiet: null means "use the existing CLP-only recharge".
 export async function fetchQuote(options = {}) {

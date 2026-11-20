@@ -1,0 +1,14 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "metalgym88-djlabs-cl",
+  "compatibility_date": "2026-11-20",
+  // The bundle is a static SPA; the Worker only wraps the middleware.
+  "main": "worker.js",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    // The middleware must see every request, the documents included.
+    "run_worker_first": true,
+    "not_found_handling": "single-page-application"
+  }
+}
