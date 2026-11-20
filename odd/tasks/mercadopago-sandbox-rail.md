@@ -221,3 +221,74 @@ Only `approved` credits. `authorized`, `in_process`, `pending`, `rejected`, `ref
 The backend adapter is the last piece of code. After it lands, the remaining work is
 operational, not development: the webhook secret, the test credential pair of the
 production app, and the journey in section 4 run through the Brick in a browser.
+
+## 10. Live purchase continuation — 2026-11-19
+
+### Objective
+
+Complete the visible 1,000 CLP credit-purchase journey on the already-active Mercado Pago production rail through CDP, with exactly one credit movement and without exposing card data.
+
+### Current evidence
+
+- The running API resolves `metalgym88 + CLP` to Mercado Pago production.
+- The deployed front (`origin/main@5254b269`) initializes the Brick with an incomplete RUT and therefore renders the card form as unavailable.
+- The targeted correction from local `main@f432411` is now isolated on `feat/mercadopago-live-purchase` from deployed front revision `5254b269`; the unrelated privacy changes remain excluded.
+- The local MySQL database contains no Mercado Pago card token or card fixture.
+- `E2E_PAYPAL_CARD_*` is proven only for PayPal sandbox and cannot authorize a Mercado Pago production payment.
+- The pinned account has an email but no RUT; the corrected Brick requires a valid RUT before submission.
+
+### Authorized scope
+
+- Complete the live purchase on `metalgym88.djlabs.cl` for the visible 1,000 CLP package.
+- Use the local CDP harness and credentials already stored on this machine.
+- Isolate and deploy the Brick/RUT correction required to make the visible flow work.
+- Do not switch the CLP rail to Flow, change the global payment default, print or persist card values, or create duplicate orders.
+
+### Tasks
+
+- [x] **T10 — Isolate the Brick/RUT fix.** Backport only the Mercado Pago initialization and RUT validation behavior onto a branch based on the deployed front revision; exclude unrelated privacy work.
+- [x] **T11 — Verify the targeted front.** Run focused wallet tests, the full unit suite, and a production build. Record the observed results.
+- [ ] **T12 — Obtain the missing live inputs.** Record explicit authorization for 1,000 CLP, Mercado Pago production, a human-approved production card, and the payer RUT. Card values must come from a local protected file, never chat or reports.
+- [ ] **T13 — Deploy and smoke-test.** Deploy the targeted front revision, confirm the Brick mounts, and verify the consent, amount, IVA-inclusive price, and RUT request before any order is created.
+- [ ] **T14 — Complete one CDP purchase.** Use one unique idempotency key, submit the Brick token once, wait for the verified webhook, and avoid retries after a provider status exists.
+- [ ] **T15 — Prove the credit.** Verify the order, voucher, balance delta, and exactly one `PURCHASE_CREDIT` movement for 1,000 credits.
+
+### Acceptance criteria
+
+- [ ] The Brick mounts on the live wallet and no longer shows the unavailable state.
+- [ ] The exact total, variant, provider, environment, and consent are visible before the charge.
+- [ ] Exactly one production order is created for 1,000 CLP.
+- [ ] The balance increases by exactly 1,000 credits once, with one matching ledger movement.
+- [ ] No card number, CVV, expiry, token, cookie, or bearer token appears in logs, reports, screenshots, commits, or Engram.
+- [ ] A failed or pending provider status is reported honestly and never retried as a new charge.
+
+### Applicable checks
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Focused wallet tests | `npx vitest run src/lib/platform/wallet.test.js` | passed — 83/83 tests in 1 file |
+| Full unit suite | `npx vitest run` | passed — 547/547 tests in 36 files |
+| Production build | `npm run build` | passed — 138 modules transformed; built in 1.38s (Vite reported a chunk-size warning) |
+| Runtime harness | N/A | Browser/provider execution was intentionally not attempted: no authorized payer RUT or usable Mercado Pago production card fixture is available, and this work unit forbids provider authentication and purchases. |
+| Live Brick smoke test | CDP against `https://metalgym88.djlabs.cl` | pending T13 |
+| Provider/order proof | `GET /payments/orders/{orderId}` and voucher | pending T15 |
+| Wallet proof | balance and credit movements | pending T15 |
+
+### Route and controls
+
+- Route: delegated direct.
+- Trigger evidence: reading that prepares the write crossed the four-file boundary and was delegated to one mapper; the isolated fix and its checks will run in one bounded writer.
+- TDD mode: OFF, resolved from repository evidence: no `strict_tdd` marker exists for this project. Runner: `npx vitest run`.
+- Delivery strategy: `ask-on-risk`; forecast is below the approximately 400 authored-line budget, so no split or exception is currently required.
+- Review candidate: the isolated work-unit commit, not the accumulated local `main`.
+
+### Progress log
+
+| When | What | Evidence |
+| --- | --- | --- |
+| 2026-11-19 | Live-path investigation | Active rail is Mercado Pago production; deployed Brick has an incomplete-identification defect; no usable MP production card fixture or payer RUT exists locally. |
+| 2026-11-19 | T10–T11 isolated front correction | Branch `feat/mercadopago-live-purchase` is based at `5254b269`; the wallet now omits incomplete identification, requires a valid RUT before submission, and has focused regression coverage. The analytics-consent/privacy files from `f432411` are absent. Focused wallet tests passed 83/83, the full suite passed 547/547, and the production build passed. |
+
+### Next step
+
+T10–T11 are complete locally. Obtain the explicit live inputs required by T12 before any deployment, provider authentication, order creation, or purchase attempt. T13–T15 remain incomplete.

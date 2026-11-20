@@ -540,6 +540,68 @@ export function loadPaypalSdk(paypal) {
 
 /* ============================ Mercado Pago Brick ============================ */
 
+// Mercado Pago only accepts a complete RUT identification. Keep the value in
+// the shape the provider expects and reject an invalid check digit before a
+// card form can be submitted.
+export function normalizeMercadoPagoRut(value) {
+  if (typeof value !== 'string') return ''
+  return value.replace(/[^0-9Kk-]/g, '').toUpperCase()
+}
+
+export function isValidMercadoPagoRut(value) {
+  const normalized = normalizeMercadoPagoRut(value)
+  const match = /^(\d{1,10})-?([0-9K])$/.exec(normalized)
+  if (!match) return false
+
+  let sum = 0
+  let factor = 2
+  for (let index = match[1].length - 1; index >= 0; index -= 1) {
+    sum += Number(match[1][index]) * factor
+    factor = factor === 7 ? 2 : factor + 1
+  }
+  let expected = 11 - (sum % 11)
+  if (expected === 11) expected = 0
+  if (expected === 10) expected = 'K'
+  return String(expected) === match[2]
+}
+
+// Builds the Brick initialization without ever sending an identification that
+// has no number. A missing or invalid RUT is simply omitted so the Brick can
+// still mount; the wallet asks for a valid RUT before submission instead.
+export function buildMercadoPagoInitialization(amount, email, rut) {
+  const initialization = { amount }
+  const payerEmail = stringOrNull(email)
+  if (!payerEmail) return initialization
+
+  const payer = { email: payerEmail }
+  const normalizedRut = normalizeMercadoPagoRut(rut)
+  if (isValidMercadoPagoRut(normalizedRut)) {
+    payer.identification = { type: 'RUT', number: normalizedRut }
+  }
+  initialization.payer = payer
+  return initialization
+}
+
+// Builds the payer sent with the card order. A valid RUT is mandatory here;
+// the Brick's own RUT wins when it is valid, otherwise the wallet value is used.
+export function buildMercadoPagoPayer(email, rut, brickPayer) {
+  const normalizedRut = normalizeMercadoPagoRut(rut)
+  if (!isValidMercadoPagoRut(normalizedRut)) return null
+
+  const source = isObject(brickPayer) ? brickPayer : {}
+  const payerEmail = stringOrNull(source.email) || stringOrNull(email)
+  if (!payerEmail) return null
+
+  const sourceIdentification = isObject(source.identification) ? source.identification : {}
+  const sourceNumber = stringOrNull(sourceIdentification.number)
+  const sourceType = stringOrNull(sourceIdentification.type)?.toUpperCase()
+  const identification = sourceType === 'RUT' && isValidMercadoPagoRut(sourceNumber)
+    ? { type: 'RUT', number: normalizeMercadoPagoRut(sourceNumber) }
+    : { type: 'RUT', number: normalizedRut }
+
+  return { email: payerEmail, identification }
+}
+
 // The official Checkout Bricks SDK v2. The public key comes from the quote;
 // the script itself is the same for test and production credentials.
 const MERCADOPAGO_SDK_URL = 'https://sdk.mercadopago.com/js/v2'

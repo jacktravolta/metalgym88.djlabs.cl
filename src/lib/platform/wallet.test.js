@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { existsSync, readFileSync } from 'node:fs'
 import es from '../../locales/es.js'
 import {
   normalizeLimits, fetchLimits, clampAmount,
   normalizeQuote, fetchQuote, formatMoney,
   usdPriceLabel, usdPacks, showsCustomAmount, normalizePaypalInfo,
   normalizeMercadoPagoInfo, normalizeProviderKeys, normalizeIva, hasMercadoPagoRail, alternativeRailProvider,
+  normalizeMercadoPagoRut, isValidMercadoPagoRut, buildMercadoPagoInitialization, buildMercadoPagoPayer,
   paymentProviderMethod, availableProvidersForCurrency, selectInitialCurrency,
   normalizeMovements, fetchMovements, movementDirection, movementLabel, groupMovements,
   normalizeTariffs, fetchTariffs, tariffLabel,
@@ -684,6 +686,68 @@ describe('card checkout — token only, never raw card data', () => {
     expect(m.impl).toHaveBeenCalledTimes(1)
     expect(err.status).toBe(402)
     expect(err.code).toBe('CARD_DECLINED')
+  })
+})
+
+describe('Mercado Pago Brick RUT preflight', () => {
+  it('never sends an incomplete or invalid identification to Brick initialization', () => {
+    expect(buildMercadoPagoInitialization(1000, 'buyer@example.com', '')).toEqual({
+      amount: 1000,
+      payer: { email: 'buyer@example.com' },
+    })
+    expect(buildMercadoPagoInitialization(1000, 'buyer@example.com', '12.345.678-9')).toEqual({
+      amount: 1000,
+      payer: { email: 'buyer@example.com' },
+    })
+    expect(buildMercadoPagoInitialization(1000, 'buyer@example.com', '12.345.678-5')).toEqual({
+      amount: 1000,
+      payer: {
+        email: 'buyer@example.com',
+        identification: { type: 'RUT', number: '12345678-5' },
+      },
+    })
+  })
+
+  it('requires a valid RUT before it can build the order payer', () => {
+    expect(buildMercadoPagoPayer('buyer@example.com', '', null)).toBe(null)
+    expect(buildMercadoPagoPayer('buyer@example.com', '12.345.678-9', null)).toBe(null)
+    expect(buildMercadoPagoPayer('buyer@example.com', '12.345.678-5', null)).toEqual({
+      email: 'buyer@example.com',
+      identification: { type: 'RUT', number: '12345678-5' },
+    })
+  })
+
+  it('uses a valid RUT collected by the Brick and falls back to the wallet value otherwise', () => {
+    expect(buildMercadoPagoPayer('buyer@example.com', '12345678-5', {
+      email: 'brick@example.com',
+      identification: { type: 'RUT', number: '98765432-5' },
+    })).toEqual({
+      email: 'brick@example.com',
+      identification: { type: 'RUT', number: '98765432-5' },
+    })
+    expect(buildMercadoPagoPayer('buyer@example.com', '12345678-5', {
+      email: 'brick@example.com',
+      identification: { type: 'RUT', number: '98765432-9' },
+    })).toEqual({
+      email: 'brick@example.com',
+      identification: { type: 'RUT', number: '12345678-5' },
+    })
+  })
+
+  it('normalizes and validates the Chilean RUT check digit', () => {
+    expect(normalizeMercadoPagoRut('12.345.678-5')).toBe('12345678-5')
+    expect(isValidMercadoPagoRut('12.345.678-5')).toBe(true)
+    expect(isValidMercadoPagoRut('12.345.678-9')).toBe(false)
+    expect(isValidMercadoPagoRut('not-a-rut')).toBe(false)
+  })
+
+  it('keeps the RUT backport isolated from the unrelated analytics consent work', () => {
+    expect(existsSync(new URL('../../../public/js/analytics-consent.js', import.meta.url))).toBe(false)
+    expect(existsSync(new URL('../../../public/css/analytics-consent.css', import.meta.url))).toBe(false)
+    expect(readFileSync(new URL('../../../index.html', import.meta.url), 'utf8'))
+      .not.toContain('/js/analytics-consent.js')
+    expect(readFileSync(new URL('../../../public/legal/privacidad.html', import.meta.url), 'utf8'))
+      .not.toContain('analitica-del-sitio')
   })
 })
 
