@@ -37,11 +37,11 @@ describe('wallet hosted checkout', () => {
     expect(selectWalletCurrency(quote).currency).toBe('CLP')
   })
 
-  it('labels the one primary action with the selected currency', () => {
-    expect(walletPayButtonLabelKey('CLP')).toBe('Pay in CLP')
-    expect(walletPayButtonLabelKey('USD')).toBe('Pay in USD')
-    expect(es['Pay in CLP']).toBe('Pagar en CLP')
-    expect(es['Pay in USD']).toBe('Pagar en USD')
+  it('labels the one primary action with the selected currency and payment method', () => {
+    expect(walletPayButtonLabelKey('CLP')).toBe('Pay in CLP with Mercado Pago')
+    expect(walletPayButtonLabelKey('USD')).toBe('Pay in USD with PayPal')
+    expect(es['Pay in CLP with Mercado Pago']).toBe('Pagar en CLP con Mercado Pago')
+    expect(es['Pay in USD with PayPal']).toBe('Pagar en USD con PayPal')
   })
 
   it('creates the Mercado Pago hosted order and opens its returned URL in this window', async () => {

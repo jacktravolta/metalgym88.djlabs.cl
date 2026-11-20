@@ -214,7 +214,9 @@ export function selectWalletCurrency(quote) {
 // One primary action names the selected currency. The source string is English;
 // each locale translates it without changing the currency code.
 export function walletPayButtonLabelKey(currency) {
-  return currencyCode(currency) === 'USD' ? 'Pay in USD' : 'Pay in CLP'
+  return currencyCode(currency) === 'USD'
+    ? 'Pay in USD with PayPal'
+    : 'Pay in CLP with Mercado Pago'
 }
 
 // Older quotes did not advertise providers per currency. Their previous wallet

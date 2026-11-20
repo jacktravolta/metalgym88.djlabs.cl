@@ -443,3 +443,188 @@ T13 remains incomplete. The parent must deploy this T18 work unit through a Clou
 | Modal backdrop scan | exact `.mback` click-handler grep in `src/components/Modals.jsx` | passed — no click handler on either shared backdrop |
 | Test side-effect scan | order-endpoint grep plus direct-`fetch` grep over front test files | passed — order endpoint strings occur only in test assertions/stubbed calls; no direct `fetch(...)` call exists, and `wallet.test.js` installs 29 fetch stubs |
 | Runtime harness | N/A | deployment, credentials, card entry, order creation, and purchase were not authorized; no order/payment endpoint was called |
+
+## 12. Scope correction — hosted Mercado Pago checkout, no iframe — 2026-11-20
+
+### Authorized outcome
+
+- Replace the embedded Mercado Pago Brick (a third-party iframe inside our checkout) with the
+  provider's **hosted checkout**: create the order through the Mercado Pago Orders API and redirect
+  the buyer to Mercado Pago's own payment page (`checkout_url`).
+- In the price-selection band, show one primary button — **"Pagar en CLP" / "Pagar en USD"** — with
+  **CLP selected by default**.
+  - CLP + Mercado Pago (sandbox credentials) → redirect to the Mercado Pago hosted checkout.
+  - USD + PayPal (existing sandbox integration) → redirect to the PayPal checkout flow.
+- Stay in sandbox: no live charges, no production credentials in the running configuration.
+- Prove the complete journey in a visible browser: wallet → pay button → Mercado Pago hosted page →
+  official sandbox card → return → wallet shows the recharge credited.
+
+### Verified gateway facts (2026-11-20)
+
+- `POST /v1/checkout/preferences` with the sandbox token → `resource not found` (this app has no
+  Checkout API resource).
+- `POST /v1/payments` with the sandbox token → `401 Unauthorized use of live credentials`
+  (cause 300): direct card payments through the Payments API are not available to this test account.
+- `POST /v1/orders` with the sandbox token → **works**. Accepted body: `type=online`,
+  `processing_mode=manual`, `capture_mode=automatic_async`, `total_amount`, `external_reference`,
+  `items[]` **without** `currency_id`, `payer.email`, and
+  `config.online.{callback_url,success_url,failure_url,pending_url}`; headers `Authorization: Bearer`,
+  `Content-Type: application/json`, `X-Idempotency-Key`. The response carries `id` (`ORDTST…` in
+  sandbox) and `checkout_url`.
+- The hosted checkout opens "¿Cómo quieres pagar?" (Mercado Pago account / app / card without
+  account). Its card form uses `cardholderName` and `cardholderIdentificationNumber` in the main
+  document plus the secure-fields frames `cardNumber`, `expirationDate`, `securityCode`, a
+  "Documento del titular" selector (RUT by default) and a "Continuar" action.
+- The sandbox app exposes no webhook endpoint (`PUT /applications/{id}` → 403,
+  `notifications_topics: []`), so the credit must be settled by verifying the order server-side on
+  the buyer return.
+
+### Work units
+
+- [x] **T22 — Backend: Mercado Pago hosted checkout rail (Orders API).** `MercadoPagoProvider::createCheckoutOrder` creates the hosted order through `POST /v1/orders` and `getCheckoutStatus` reads it back through `GET /v1/orders/{id}`. The request carries `type=online`, `processing_mode=manual`, `capture_mode=automatic_async`, the price as a string, the items **without** `currency_id`, the payer email and `config.online.{callback_url,success_url,failure_url,pending_url}`. The configured environment is the authority: a test installation only accepts an `ORDTST…` order id and a production installation only accepts a non-sandbox one.
+- [x] **T23 — Backend: order persistence, return settlement, idempotent credit.** `PaymentService::createMercadoPagoCheckoutOrder` resolves the server-owned CLP variant, stores the provider order id and the checkout URL, and honors the `Idempotency-Key` in its own user-scoped namespace. `settleMercadoPagoCheckoutOrder` asks the provider server-to-server and credits through the existing `approveOrder` path (operation `order:<orderId>`), so a second settlement never credits twice. The public `GET /payments/return/mercadopago` settles the order and redirects the browser (303) to the heart's wallet with the shared `?pago=` + `&orden=` contract. Our own order id travels in `mp_order`, never in the provider's `order_id`.
+- [x] **T24 — Front: replace the Brick with the hosted redirect and the unified "Pagar en CLP / Pagar en USD" button.** The wallet no longer mounts the Brick, the price band always offers CLP (default) and USD, and one currency-named button starts the hosted checkout (CLP) or the existing PayPal redirect (USD).
+- [x] **T25 — Regression coverage** for the provider request/response mapping, the status mapping, the environment guard and the missing-credential path.
+- [ ] **T26 — Visible sandbox rehearsal and evidence.** Run the journey in a visible browser and record the hosted checkout, the approved order, the single credit movement, and the final balance.
+
+### Work-unit evidence
+
+#### Front work unit — `d05e71c` + `b429465`
+
+- `d05e71c` (`feat(wallet): use hosted checkout for currency top-ups`): 439 insertions, 473 deletions across `src/components/Wallet.jsx`, `src/components/Wallet.test.js`, `src/lib/platform/wallet.js`, `src/lib/platform/wallet.test.js` and `src/locales/es.js`. The Brick mount, the iframe container and the SDK bootstrap are gone; the embedded PayPal CardFields path is gone too, so USD always leaves through the PayPal redirect.
+- `b429465` (`fix(wallet): restrict recharge currencies to CLP and USD`): a quote that advertises another currency is no longer offered, because the pay button would have carried a CLP label while no rail existed behind it. This closes the only functional finding of the independent verification.
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Focused wallet regressions | `npx vitest run src/lib/platform/wallet.test.js src/components/Wallet.test.js` | passed — 97/97 tests in 2 files |
+| Full unit suite | `npm test` | passed — 577/577 tests in 41 files |
+| Production build | `npm run build` | passed — 138 modules transformed; built in 2.00s (pre-existing chunk-size warning) |
+| Independent verification | delegated read-only reviewer | passed on every contract point; one low-severity edge (extra currencies) fixed in `b429465`; informational: the legacy Brick/CardFields helpers remain in `wallet.js` without runtime callers (tree-shaken from the bundle) |
+| Deployment | `node_modules/.bin/wrangler deploy` | deployed — worker version `9433e00d-5e3e-4e7d-8045-50e91b5b0fff` |
+| Bundle readback | `curl` of the live document and its entry chunk | `/payments/orders/checkout` present; `mp-card-` and the Brick SDK absent; the Spanish copy `Pagar en CLP` / `Pagar en USD` present in the locale chunk |
+
+#### API work unit — `5c6522b`
+
+- `5c6522b` (`feat(payments): hosted Mercado Pago checkout via Orders API`): 968 insertions across `app/Payments/MercadoPagoProvider.php`, `app/Payments/PaymentService.php`, `public/index.php` (only the two new route blocks), `tests/mercado_pago_checkout_order_test.php` and `tests/mock-mercadopago/index.php`.
+- The worktree carries unrelated modifications from other work (including two blocks of `public/index.php`), so the commit was staged hunk by hunk: the two route blocks are in the commit and every unrelated change stayed out of it.
+- **Route deviation:** the three delegated writer attempts for this unit failed before writing anything with provider HTTP 429 responses, so the unit was implemented inline by the parent session instead of by a delegated writer. The contract, the scope and the verification commands were unchanged.
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Syntax | `php -l` on every changed file | passed — no syntax errors |
+| Hosted checkout contract | `php tests/mercado_pago_checkout_order_test.php` | passed — 15 asserts, 0 fallos |
+| Mercado Pago regression | `php tests/mercado_pago_provider_test.php` | passed — 27 asserts, 0 fallos |
+| Configuration regression | `php tests/mercado_pago_config_test.php` | passed — 25 asserts, 0 fallos |
+| Consent regression | `php tests/mercado_pago_consent_test.php` | passed — 6 asserts, 0 fallos |
+| Webhook regression | `php tests/mercado_pago_webhook_test.php` | passed — 13 asserts, 0 fallos |
+| Currency regressions | `php tests/payment_currency_migration_test.php`, `php tests/payment_default_currency_test.php` | passed — 0 and 11 asserts, 0 fallos |
+| Redirect/heart regressions | `php tests/payment_redirect_rail_test.php`, `php tests/payment_heart_gateway_test.php` | passed — 7 and 12 asserts, 0 fallos |
+| Service restart | `systemctl --user restart api-independent.service` | active; `GET /health` → 200 |
+| Route readback | `POST /payments/orders/checkout` without a token | 401 (the route exists and requires a session) |
+
+### Acceptance criteria
+
+- No Mercado Pago iframe is mounted by the wallet for the card rail.
+- The price band offers CLP (default) and USD, with one pay button labelled for the selected
+  currency; Mercado Pago is used in sandbox and PayPal keeps its sandbox flow.
+- The Mercado Pago order is created through the Orders API and the buyer lands on Mercado Pago's
+  hosted payment page.
+- The credit lands exactly once for an approved order, and a failed or abandoned order never
+  credits.
+- The complete journey is observable in a visible browser, and the backend keeps running on
+  sandbox credentials.
+
+### Route and delegation
+
+- **T22/T23/T25 (API)** and **T24/T25 (front)** are delegated direct work: each side spans several
+  non-trivial files, so one bounded writer owns each repository. The two repositories are isolated
+  worktrees; the API writer runs first, the front writer second.
+- The API worktree already carries unrelated modifications (including `public/index.php`), so the
+  API writer must not commit; the parent stages the feature boundary precisely and creates the
+  work-unit commit.
+- **Delivery strategy: `exception-ok` (owner-approved `size:exception`, 2026-11-20).** The observed
+  front work unit is 912 authored changed lines (439 insertions, 473 deletions) in commit
+  `d05e71c4085a233f6b3a20655ccacb350118e9c5` (`feat(wallet): use hosted checkout for currency
+  top-ups`): removing the embedded Brick and the embedded PayPal CardFields lifecycles plus their
+  regression coverage is one cohesive change that has no honest split below the ~400-line budget.
+  The feature therefore ships as one work unit per repository (front + API), each with the size
+  exception recorded here. The API work unit is expected to stay near the ~400-line budget.
+
+### Progress
+
+- 2026-11-20 — Scope corrected after the owner rejected the embedded Brick as a trust problem and
+  required the real payment method to open. The Brick-specific work units (T13, T19, T21) are
+  superseded by T22–T26 for the card rail; their historical evidence stays in this ledger.
+
+## 13. Scope correction — the pay button names the real payment method, and the USD (PayPal) rail is rehearsed in sandbox — 2026-11-20
+
+### Authorized outcome
+
+- The pay button names the payment method it actually opens: **"Pagar en CLP con Mercado Pago"**
+  and **"Pagar en USD con PayPal"** (owner wording, 2026-11-20). CLP stays the default.
+- The USD rail is rehearsed end to end against PayPal **sandbox**, in a visible browser, and the
+  result is recorded with the same rigour as the CLP rehearsal (T26).
+- Nothing moves to live: Mercado Pago keeps its test credentials and PayPal keeps its sandbox
+  credentials. No production credential is touched.
+
+### Verified facts (2026-11-20)
+
+- The wallet's quote answers `USD: available=false` with the reason *"El pago en dólares requiere
+  credenciales de PayPal en modo live."* The cause is not the provider: `payments.paypal.environment`
+  is `sandbox`, `payments.paypal.client_id`/`secret` are set and `PayPalProvider::creditedVariants()`
+  returns the three USD packs. The cause is `app.env = production`, which makes
+  `PayPalProvider::isConfigured()` false (sandbox credentials in a non-development environment are
+  refused on purpose).
+- The design already carries the intended sandbox window: `payments.paypal.sandbox_test_users`
+  enables the USD rail for the listed accounts in the quote (`quote()`), in the provider selection
+  (`assertProviderSelection`) and in the order creation (`assertRailAvailable`). The heart's USD
+  rail is `paypal` and its CLP rail is `mercadopago`.
+- The USD checkout is PayPal's OWN hosted page: `PayPalProvider::createOrder` posts an Orders v2
+  order with `payment_source.paypal` and follows the `payer-action` link; the front navigates with
+  `location.assign` and comes back to the wallet with `?orden=`.
+- Open gap found while tracing the USD rail: the hosted PayPal order is never **captured**.
+  `PayPalProvider::captureOrder` is only called by the card-token flow, `getStatus` maps only
+  `COMPLETED` to `APPROVED`, `payments.paypal.webhook_id` is empty (no webhook) and the reconcile job
+  reads the status without capturing. An approved-but-uncaptured order therefore stays `PENDING`
+  and never credits. This must be recorded honestly: the USD rehearsal proves the hosted checkout
+  and the return, and the credit path is a separate work unit unless the rail already settles it.
+
+### Work units
+
+- [ ] **T27 — The pay button names the payment method.** `walletPayButtonLabelKey` returns
+      `Pay in CLP with Mercado Pago` / `Pay in USD with PayPal`, the Spanish locale renders
+      *"Pagar en CLP con Mercado Pago"* / *"Pagar en USD con PayPal"*, and the regression coverage
+      pins both strings.
+- [ ] **T28 — Visible USD rehearsal against PayPal sandbox.** A disposable test account is put in
+      the sandbox window (`payments.paypal.sandbox_test_users` in the live, git-ignored config),
+      the wallet opens in a visible browser, USD is selected, the button is pressed, PayPal's hosted
+      page is reached, the payment is completed with sandbox credentials and the return to the
+      wallet is recorded together with the order state, the movements and the balance.
+
+### Acceptance criteria
+
+- The button reads exactly *"Pagar en CLP con Mercado Pago"* in CLP and *"Pagar en USD con PayPal"*
+  in USD, and the locale test still proves there is no silent English fallback.
+- The USD rail is reachable in sandbox for the test account, and the hosted PayPal page is the one
+  the browser lands on (no iframe inside the app).
+- The ledger states whether the USD payment credited the wallet or stayed pending, with the
+  provider order id and the order status as evidence.
+
+### Route and delegation
+
+- **T27:** delegated direct — the copy touches the wallet library, the Spanish locale and two test
+  files, so one bounded writer owns the front repository. The writer does not commit; the parent
+  creates the work-unit commit.
+- **T28:** inline harness work (`/tmp/opencode/paypal-usd-journey.mjs`), one live-config edit in
+  the API repository (the sandbox window list) and a service restart; the visible run is a
+  per-action execution.
+
+### Checks
+
+```
+npx vitest run src/lib/platform/wallet.test.js src/components/Wallet.test.js src/lib/locales.test.js
+npm test
+npm run build
+```
+
+(Report the real output of each.)
