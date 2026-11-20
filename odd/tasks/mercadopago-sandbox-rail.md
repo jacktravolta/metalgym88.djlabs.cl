@@ -288,7 +288,10 @@ Complete the visible 1,000 CLP credit-purchase journey on the already-active Mer
 | --- | --- | --- |
 | 2026-11-19 | Live-path investigation | Active rail is Mercado Pago production; deployed Brick has an incomplete-identification defect; no usable MP production card fixture or payer RUT exists locally. |
 | 2026-11-19 | T10–T11 isolated front correction | Branch `feat/mercadopago-live-purchase` is based at `5254b269`; the wallet now omits incomplete identification, requires a valid RUT before submission, and has focused regression coverage. The analytics-consent/privacy files from `f432411` are absent. Focused wallet tests passed 83/83, the full suite passed 547/547, and the production build passed. |
+| 2026-11-19 | T10–T11 work-unit commit | Commit `ba830c5343590561f6f390f3f8aecf2325824415` (`fix(wallet): require valid RUT for Mercado Pago checkout`), based on `5254b2693ca24cd6718c413a8db9f4650efa47d4`; 240 additions and 4 deletions across five intended files. |
+| 2026-11-19 | Independent verification | Fresh read-only verifier returned PASS for the isolated fix, with no blocker or critical finding. It reran the focused wallet suite (83/83), full suite (547/547), and production build successfully. The parent also reran the focused wallet suite: 83/83 passed. |
+| 2026-11-19 | Residual RUT warning | A valid RUT entered only inside the Brick cannot bypass the explicit wallet-RUT preflight. The intended live path supplies the RUT in the wallet input, so this does not block the authorized journey; Brick-only collection remains unsupported. |
 
 ### Next step
 
-T10–T11 are complete locally. Obtain the explicit live inputs required by T12 before any deployment, provider authentication, order creation, or purchase attempt. T13–T15 remain incomplete.
+T10–T11 are complete locally in commit `ba830c5`. T12 is blocked until the human-approved Mercado Pago production card and payer RUT are available from a protected local source. Do not deploy, authenticate to the provider, create an order, or attempt the purchase before that input exists. T13–T15 remain incomplete.
