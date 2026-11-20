@@ -249,10 +249,11 @@ Complete the visible 1,000 CLP credit-purchase journey on the already-active Mer
 - [x] **T10 — Isolate the Brick/RUT fix.** Backport only the Mercado Pago initialization and RUT validation behavior onto a branch based on the deployed front revision; exclude unrelated privacy work.
 - [x] **T11 — Verify the targeted front.** Run focused wallet tests, the full unit suite, and a production build. Record the observed results.
 - [ ] **T12 — Obtain the missing live inputs.** Record explicit authorization for 1,000 CLP, Mercado Pago production, a human-approved production card, and the payer RUT. Card values must come from a local protected file, never chat or reports.
-- [ ] **T13 — Deploy and smoke-test.** Revision `1920605` is deployed, but the Brick did not mount in the no-order smoke because the live CSP omits the Mercado Pago SDK's inline-bootstrap hash. Keep this task open until the corrected CSP is deployed, the Brick mounts, and the consent, amount, IVA-inclusive price, and RUT request are verified before any order is created.
+- [ ] **T13 — Deploy and smoke-test.** Revision `49f4707324e0ce5ec3d5b6b48bb910481bd06e6c` (`49f4707`) is deployed, but the Brick still did not mount in the authorized no-order/no-charge smoke: Chrome reported two CSP violations requesting the same additional Mercado Pago SDK v2 inline-bootstrap hash. The smoke sent zero order/provider-payment POSTs. Keep this task open until the corrected front with both observed hashes is deployed, the Brick mounts, and the consent, amount, IVA-inclusive price, and RUT request are verified before any order is created. The public key returned by the quote is independently rejected by Mercado Pago with `404 public key not found`; that backend credential/configuration blocker is outside this front correction.
 - [ ] **T14 — Complete one CDP purchase.** Use one unique idempotency key, submit the Brick token once, wait for the verified webhook, and avoid retries after a provider status exists.
 - [ ] **T15 — Prove the credit.** Verify the order, voucher, balance delta, and exactly one `PURCHASE_CREDIT` movement for 1,000 credits.
-- [x] **T16 — Correct and protect the front CSP for the Mercado Pago SDK bootstrap.** Add only the hash observed in the browser to the mirrored static-host policies, preserve the restrictive script policy, and add a regression that rejects drift or omission. The source correction is complete in this work unit; production deployment and smoke remain part of T13.
+- [x] **T16 — Correct and protect the front CSP for the Mercado Pago SDK bootstrap.** Add only the hash observed in the browser to the mirrored static-host policies, preserve the restrictive script policy, and add a regression that rejects drift or omission. Revision `49f4707` completed and deployed that first correction; its post-deploy smoke exposed the remaining required hash tracked by T17.
+- [x] **T17 — Correct the remaining Mercado Pago SDK bootstrap hash in front source.** Add the second exact hash observed in the authorized no-order smoke to every active/static-host CSP copy while retaining the first, and extend the semantic regression to require both hashes, keep the copies aligned, and reject unsafe script execution or new broad script wildcards. The source correction is complete in this work unit; deployment and smoke remain part of T13.
 
 ### Acceptance criteria
 
@@ -327,6 +328,35 @@ There are two independent blockers:
 
 The observed RED was the focused CSP test failing because the hash was absent from the first policy source. The final focused run is green.
 
+### 2026-11-20 — deployed first hash and remaining SDK bootstrap correction
+
+#### Production evidence after revision `49f4707`
+
+- Front revision `49f4707324e0ce5ec3d5b6b48bb910481bd06e6c` (`49f4707`) is deployed on `metalgym88.djlabs.cl`.
+- The authorized no-order/no-charge smoke observed **two** CSP violations. Both requested the same additional exact Mercado Pago SDK v2 inline-bootstrap hash:
+  `sha256-u3n8DlRExTbGVwTPaH6dx4VS3cNAI9vzqGuYZ9KG820=`.
+- The previously deployed exact hash `sha256-A3HQMGCaYTLR55HokyyZBduy+DilrRCMRE/WGHXc5i4=` remains required and must stay allowed.
+- The Brick still did **not** mount. The smoke sent zero order/provider-payment POSTs, so it created no order and caused no charge.
+- Independently, Mercado Pago's `/v1/payment_methods/search` returned `404 public key not found` for the public key returned by the quote. This backend credential/configuration blocker is unchanged and is not addressed by T17.
+
+#### T17 source correction
+
+- T17 adds the second exact observed hash to the Mercado Pago SDK allowance in the tracked root `_headers`, the Vite `public/_headers` input, and the `index.html` meta fallback. The first exact hash remains in all three policies.
+- The correction does not add `'unsafe-inline'`, `'unsafe-eval'`, a Mercado Pago wildcard, or weaken an unrelated directive.
+- `scripts/csp.test.js` now describes the SDK bootstrap contract semantically: every active/static-host policy must contain both exact observed hashes, the two header copies must remain byte-identical, the response-header and meta policies must stay aligned except for their two documented header-only directives, and script sources must not gain unsafe execution keywords or broad wildcards.
+- `npm run build` copies `public/_headers` to `dist/_headers` and transforms `index.html` into both `dist/index.html` and `dist/404.html`; the build readback confirmed both hashes in all three outputs and byte equality for the header copies.
+- Rollback boundary: revert only this new T17 work-unit commit (the three CSP sources, the CSP regression, and this ledger update). The deployed `49f4707` boundary remains unchanged and auditable.
+
+#### T17 correction checks
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Focused CSP regression | `npx vitest run scripts/csp.test.js` | passed — 3/3 tests in 1 file; 241ms |
+| Full unit suite | `npm test` | passed — 550/550 tests in 37 files; 11.71s |
+| Production build | `npm run build` | passed — 138 modules transformed; built in 1.27s (Vite reported the pre-existing chunk-size warning) |
+| Build readback | source → `dist/` inspection | passed — `dist/_headers` is byte-identical to `public/_headers`; both exact hashes are present in `dist/_headers`, `dist/index.html`, and `dist/404.html` |
+| Runtime harness | N/A | deployment and the production no-order/no-charge smoke are owned by the parent session; this worker did not deploy, authenticate, create an order, or charge |
+
 ### Next step
 
-Revision `1920605` is deployed, but T13 remains incomplete because the Brick has not mounted. The parent must deploy the T16 work-unit commit and rerun the authorized no-order/no-charge smoke; if the Brick mounts, record the consent, amount, IVA-inclusive price, and RUT request without submitting an order. The backend public-key blocker and T12's protected card/RUT inputs remain separate prerequisites for T14–T15.
+T13 remains incomplete because the Brick has not mounted. The parent must deploy the new T17 work-unit commit and rerun the authorized no-order/no-charge smoke; if the Brick mounts, record the consent, amount, IVA-inclusive price, and RUT request without submitting an order. The backend public-key 404 and T12's protected card/RUT inputs remain separate prerequisites for T14–T15.

@@ -2,7 +2,12 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 const projectRootUrl = new URL('../', import.meta.url)
-const mercadoPagoSdkHash = "'sha256-A3HQMGCaYTLR55HokyyZBduy+DilrRCMRE/WGHXc5i4='"
+// Mercado Pago SDK v2 requires both exact inline-bootstrap hashes observed across
+// production smokes. Keep the allowance exact: no unsafe execution or broad hosts.
+const mercadoPagoSdkBootstrapHashes = [
+  "'sha256-A3HQMGCaYTLR55HokyyZBduy+DilrRCMRE/WGHXc5i4='",
+  "'sha256-u3n8DlRExTbGVwTPaH6dx4VS3cNAI9vzqGuYZ9KG820='",
+]
 
 function read(relativePath) {
   return readFileSync(new URL(relativePath, projectRootUrl), 'utf8')
@@ -46,10 +51,12 @@ describe('static-host Content Security Policy', () => {
     expect(rootHeaders).toBe(publicHeaders)
   })
 
-  it('allows the observed Mercado Pago SDK inline bootstrap without weakening script execution', () => {
+  it('allows both observed Mercado Pago SDK v2 inline bootstrap hashes without weakening script execution', () => {
     for (const [source, policy] of policies) {
       const scriptSources = directives(policy).get('script-src')
-      expect(scriptSources, source).toContain(mercadoPagoSdkHash)
+      for (const hash of mercadoPagoSdkBootstrapHashes) {
+        expect(scriptSources, `${source}: ${hash}`).toContain(hash)
+      }
       expect(scriptSources, source).not.toContain("'unsafe-inline'")
       expect(scriptSources, source).not.toContain("'unsafe-eval'")
 
