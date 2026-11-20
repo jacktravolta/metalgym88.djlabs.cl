@@ -12,7 +12,7 @@
 // Payment provider is deliberately unnamed everywhere (client copy included): the
 // gateway is platform-side and provider-agnostic.
 import { phttp } from './http.js'
-import { withHeart, withHeartQuery } from './config.js'
+import { HEART, withHeart, withHeartQuery } from './config.js'
 import { fmtNum } from '../format.js'
 
 /* ============================ limits ============================ */
@@ -200,21 +200,37 @@ export function selectInitialCurrency(quote) {
   return available.find(currency => currency.currency === quote.defaultCurrency) || available[0] || null
 }
 
+// The owner-facing price band always starts in CLP. USD is the second choice;
+// a quote without an available CLP row may fall back to its first available
+// currency so the wallet never points at a disabled option.
+export function selectWalletCurrency(quote) {
+  if (!isObject(quote) || !Array.isArray(quote.currencies)) return null
+  const available = quote.currencies.filter(currency => currency && currency.available)
+  const clp = available.find(currency => currency.currency === 'CLP')
+  const usd = available.find(currency => currency.currency === 'USD')
+  return clp || usd || available[0] || null
+}
+
+// One primary action names the selected currency. The source string is English;
+// each locale translates it without changing the currency code.
+export function walletPayButtonLabelKey(currency) {
+  return currencyCode(currency) === 'USD' ? 'Pay in USD' : 'Pay in CLP'
+}
+
 // Older quotes did not advertise providers per currency. Their previous wallet
 // behaviour remains: USD used PayPal when it was configured; every other
 // currency used the redirect rail.
 export function availableProvidersForCurrency(currencyRow, quote) {
   if (!isObject(currencyRow)) return []
   if (Array.isArray(currencyRow.providers)) return currencyRow.providers
+  if (quote && Array.isArray(quote.providers) && quote.providers.length) return quote.providers
   if (currencyRow.currency === 'USD' && quote && quote.paypal) return ['paypal']
   return ['flow']
 }
 
-// The rail to name when the person chooses NOT to pay by card. A currency the
-// heart bills through the in-app card form (Mercado Pago) has NO redirect
-// alternative: naming one would charge through a gateway the heart never chose
-// for that currency. null means "this currency has no other rail" — the wallet
-// hides the alternative instead of inventing one.
+// The secondary rail to name for a currency. Mercado Pago is the primary CLP
+// checkout, so it is never presented as an alternative to itself. null means
+// the platform advertised no secondary rail; the wallet must not invent one.
 export function alternativeRailProvider(currencyRow, quote) {
   const advertised = availableProvidersForCurrency(currencyRow, quote)
     .map(name => stringOrNull(name)?.toLowerCase())
@@ -474,6 +490,63 @@ export async function createOrder(amountClp, { currency = 'CLP', variantId, docu
   throw lastErr
 }
 
+// The hosted Mercado Pago checkout answers with the platform order and the URL
+// where the buyer completes the payment. Keep the client contract small: the
+// server owns the amount and credits, while the browser only needs the order
+// identity, status and redirect target.
+export function normalizeMercadoPagoCheckoutOrder(data) {
+  const source = isObject(data) && isObject(data.data) ? data.data : data
+  if (!isObject(source)) return { orderId: null, status: '', redirectUrl: null }
+  return {
+    orderId: stringOrNull(source.order_id) || stringOrNull(source.orderId),
+    status: String(source.status || '').toUpperCase(),
+    redirectUrl: stringOrNull(source.redirect_url) || stringOrNull(source.redirectUrl),
+  }
+}
+
+// Creates a hosted Mercado Pago checkout order. The legal consent is enforced
+// here as well as in the wallet, so no caller can create an order before the
+// buyer accepted both documents. Network retries reuse one Idempotency-Key.
+export async function createMercadoPagoCheckoutOrder({ variantId, legalConsent, heart } = {}) {
+  const selectedVariant = stringOrNull(variantId)
+  if (!selectedVariant) {
+    const error = new Error('A recharge option is required')
+    error.code = 'RECHARGE_VARIANT_REQUIRED'
+    throw error
+  }
+  const consent = normalizeLegalConsent(legalConsent)
+  if (!consent || !consent.terms || !consent.privacy) {
+    const error = new Error('Legal consent required')
+    error.code = 'LEGAL_CONSENT_REQUIRED'
+    throw error
+  }
+
+  const key = newKey()
+  const body = {
+    variant_id: selectedVariant,
+    legal_consent: consent,
+    heart: stringOrNull(heart) || HEART,
+  }
+  const opts = {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Idempotency-Key': key,
+    },
+    body: JSON.stringify(body),
+  }
+  let lastErr = null
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return normalizeMercadoPagoCheckoutOrder(await phttp('/payments/orders/checkout', opts))
+    } catch (e) {
+      if (e && typeof e.status === 'number') throw e
+      lastErr = e
+    }
+  }
+  throw lastErr
+}
+
 /* ============================ payment gateway ============================ */
 
 // A recharge ALWAYS continues in this same window. The gateway replaces the app
@@ -492,6 +565,67 @@ export function goToPayment(url) {
   }
   location.href = url
   return true
+}
+
+// Starts the selected hosted checkout. CLP creates a Mercado Pago checkout
+// order; USD keeps the existing PayPal order endpoint. Both leave through the
+// same window, and neither provider is contacted before legal consent.
+export async function startWalletPayment({
+  currency,
+  variantId,
+  legalAccepted,
+  createCheckoutOrder = createMercadoPagoCheckoutOrder,
+  createRedirectOrder = createOrder,
+  navigate = goToPayment,
+  onOrderCreated,
+} = {}) {
+  if (legalAccepted !== true) {
+    const error = new Error('Legal consent required')
+    error.code = 'LEGAL_CONSENT_REQUIRED'
+    throw error
+  }
+  const selectedVariant = stringOrNull(variantId)
+  if (!selectedVariant) {
+    const error = new Error('A recharge option is required')
+    error.code = 'RECHARGE_VARIANT_REQUIRED'
+    throw error
+  }
+
+  const selectedCurrency = currencyCode(currency) || 'CLP'
+  const consent = { terms: true, privacy: true }
+  let order = null
+  let redirectUrl = null
+
+  if (selectedCurrency === 'USD') {
+    const result = await createRedirectOrder(null, {
+      currency: 'USD',
+      variantId: selectedVariant,
+      legalConsent: consent,
+    })
+    order = result && result.order
+    redirectUrl = order && (order.redirect_url || order.redirectUrl)
+  } else if (selectedCurrency === 'CLP') {
+    order = await createCheckoutOrder({
+      variantId: selectedVariant,
+      legalConsent: consent,
+      heart: HEART,
+    })
+    redirectUrl = order && order.redirectUrl
+  } else {
+    const error = new Error('Unsupported recharge currency')
+    error.code = 'RECHARGE_CURRENCY_UNAVAILABLE'
+    throw error
+  }
+
+  if (!redirectUrl) {
+    const error = new Error('Payment URL missing')
+    error.code = 'PAYMENT_URL_MISSING'
+    throw error
+  }
+  const orderId = order && (order.orderId || order.order_id || order.id)
+  if (orderId && typeof onOrderCreated === 'function') onOrderCreated(orderId)
+  const navigated = navigate(redirectUrl)
+  return { order, redirectUrl, navigated }
 }
 
 /* ============================ card provider SDKs ============================ */

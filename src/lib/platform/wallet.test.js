@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { existsSync, readFileSync } from 'node:fs'
 import es from '../../locales/es.js'
+import { clearAccessToken, setAccessToken } from './http.js'
 import {
   normalizeLimits, fetchLimits, clampAmount,
   normalizeQuote, fetchQuote, formatMoney,
@@ -9,9 +10,11 @@ import {
   cardFormUnavailableMessageKey,
   buildMercadoPagoInitialization, buildMercadoPagoPayer,
   paymentProviderMethod, availableProvidersForCurrency, selectInitialCurrency,
+  selectWalletCurrency, walletPayButtonLabelKey, startWalletPayment,
   normalizeMovements, fetchMovements, movementDirection, movementLabel, groupMovements,
   normalizeTariffs, fetchTariffs, tariffLabel,
-  createOrder, createCardOrder, extractCardToken, normalizeMercadoPagoCardData,
+  createOrder, createMercadoPagoCheckoutOrder, normalizeMercadoPagoCheckoutOrder,
+  createCardOrder, extractCardToken, normalizeMercadoPagoCardData,
   loadPaypalSdk, mercadopagoSdkUrl, loadMercadoPagoSdk, goToPayment,
   saveTopupRecord, readTopupRecord, clearTopupRecord, TOPUP_RECORD_KEY, TOPUP_TTL_MS,
   orderStatus, statusKind, paymentOutcome, topUpReturnKind, checkReturnedTopUp,
@@ -41,6 +44,7 @@ function mockFetch(responses) {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  clearAccessToken()
   clearTopupRecord()
 })
 
@@ -618,6 +622,85 @@ describe('createOrder — provider-agnostic order creation', () => {
     expect(m.seen[0].opts.headers['Idempotency-Key']).toBe(m.seen[1].opts.headers['Idempotency-Key'])
     expect(a.order).toEqual(existing)
     expect(b.order).toEqual(existing)
+  })
+})
+
+describe('Mercado Pago hosted checkout order', () => {
+  it('POSTs the server-owned variant with auth, JSON and an Idempotency-Key', async () => {
+    setAccessToken('access-token')
+    const m = mockFetch([res(200, {
+      order_id: 'o-mp-hosted',
+      status: 'pending',
+      redirect_url: 'https://www.mercadopago.cl/checkout/v1/redirect',
+      amount_clp: 5000,
+      credits: 5000,
+    })])
+    vi.stubGlobal('fetch', m.impl)
+
+    const order = await createMercadoPagoCheckoutOrder({
+      variantId: 'mercadopago_5000',
+      legalConsent: { terms: true, privacy: true },
+      heart: 'metalgym88',
+    })
+
+    expect(order).toEqual({
+      orderId: 'o-mp-hosted',
+      status: 'PENDING',
+      redirectUrl: 'https://www.mercadopago.cl/checkout/v1/redirect',
+    })
+    const call = m.seen[0]
+    expect(call.url).toBe(BASE + '/payments/orders/checkout')
+    expect(call.opts.method).toBe('POST')
+    expect(call.opts.headers.Authorization).toBe('Bearer access-token')
+    expect(call.opts.headers['Content-Type']).toBe('application/json')
+    expect(typeof call.opts.headers['Idempotency-Key']).toBe('string')
+    expect(call.opts.headers['Idempotency-Key'].length).toBeGreaterThan(10)
+    expect(JSON.parse(call.opts.body)).toEqual({
+      variant_id: 'mercadopago_5000',
+      legal_consent: { terms: true, privacy: true },
+      heart: 'metalgym88',
+    })
+  })
+
+  it('refuses to create an order before both legal documents are accepted', async () => {
+    const m = mockFetch([])
+    vi.stubGlobal('fetch', m.impl)
+
+    const error = await createMercadoPagoCheckoutOrder({
+      variantId: 'mercadopago_5000',
+      legalConsent: { terms: false, privacy: true },
+      heart: 'metalgym88',
+    }).catch(e => e)
+
+    expect(error.code).toBe('LEGAL_CONSENT_REQUIRED')
+    expect(m.impl).not.toHaveBeenCalled()
+  })
+
+  it('reuses one Idempotency-Key and body across network retries', async () => {
+    const m = mockFetch(['network', res(200, {
+      order_id: 'o-mp-hosted',
+      status: 'PENDING',
+      redirect_url: 'https://pay.example/hosted',
+    })])
+    vi.stubGlobal('fetch', m.impl)
+
+    await createMercadoPagoCheckoutOrder({
+      variantId: 'mercadopago_5000',
+      legalConsent: { terms: true, privacy: true },
+      heart: 'metalgym88',
+    })
+
+    expect(m.impl).toHaveBeenCalledTimes(2)
+    expect(m.seen[0].opts.headers['Idempotency-Key']).toBe(m.seen[1].opts.headers['Idempotency-Key'])
+    expect(m.seen[1].opts.body).toBe(m.seen[0].opts.body)
+  })
+
+  it('normalizes a malformed hosted order without inventing a redirect', () => {
+    expect(normalizeMercadoPagoCheckoutOrder(null)).toEqual({
+      orderId: null,
+      status: '',
+      redirectUrl: null,
+    })
   })
 })
 

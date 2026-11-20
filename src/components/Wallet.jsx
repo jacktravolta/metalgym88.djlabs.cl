@@ -10,12 +10,11 @@
 // Boleta (document_type 46) is the only document type here; factura + fiscal fields come
 // in a later task (the seam is in wallet.js createOrder).
 //
-// The redirect rail ALWAYS continues in this same window: paying replaces the app
+// The hosted checkout ALWAYS continues in this same window: paying replaces the app
 // for a moment, and the boot check speaks the result when the person comes back.
-// The card rails render their provider fields in place (no hosted account page),
-// so a card payment never leaves this sheet. The default card rail is selected
-// only when the backend advertises it and supplies its public key.
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
+// CLP opens Mercado Pago's hosted payment page; USD keeps the existing PayPal
+// redirect flow. No provider card form is mounted inside the wallet.
+import { useEffect, useState } from 'react'
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import { me as platformMe } from '../lib/platform/auth.js'
@@ -25,28 +24,16 @@ import { t } from '../lib/i18n.js'
 import { fmtNum, fmtDate } from '../lib/format.js'
 import { TERMS_URL, PRIVACY_URL } from '../lib/legal.js'
 import {
-  fetchMovements, fetchTariffs, fetchLimits, fetchQuote, clampAmount, formatMoney,
-  usdPriceLabel, usdPacks, showsCustomAmount, groupMovements,
-  createOrder, createCardOrder, extractCardToken, normalizeMercadoPagoCardData,
-  hasMercadoPagoRail, alternativeRailProvider, cardFormUnavailableMessageKey, loadPaypalSdk, loadMercadoPagoSdk, paymentOutcome, goToPayment,
-  buildMercadoPagoInitialization, buildMercadoPagoPayer,
+  fetchMovements, fetchTariffs, fetchLimits, fetchQuote, formatMoney,
+  usdPriceLabel, groupMovements,
+  availableProvidersForCurrency, alternativeRailProvider, paymentOutcome,
+  selectWalletCurrency, walletPayButtonLabelKey, startWalletPayment,
   saveTopupRecord, checkReturnedTopUp,
 } from '../lib/platform/wallet.js'
 import Icon from './Icon.jsx'
 import { Button } from './ui.jsx'
 
 const gap = { display: 'grid', gap: 10 }
-// Default pack when the platform gives no limits of its own (server still re-clamps).
-// 350 CLP is the smallest amount the card gateway accepts, so it is the
-// smallest pack we offer: anything below it never opens the payment page.
-const PRESETS = [350, 1000, 5000, 10000]
-const DEFAULT_AMOUNT = 5000
-// PayPal renders its card fields inside our sheet. The iframe keeps its own light
-// input surface, so the text stays dark and readable on it in every app theme.
-const CARD_STYLE = {
-  input: { 'font-size': '16px', 'font-family': 'inherit', color: '#1c1c1e' },
-  '.invalid': { color: '#d70015' },
-}
 
 function TopUpStatusSheet({ result, close }) {
   // Neutral copy per status: what happened, what (if anything) to do next — never scary.
@@ -108,48 +95,17 @@ function MovementDay({ group }) {
 
 function WalletPanel({ close }) {
   const balance = useStore(s => s.balance)
-  const userEmail = useStore(s => s.user?.email) || ''
   const [movs, setMovs] = useState(null)          // { items, hasMore } — null = loading
   const [page, setPage] = useState(1)
   const [movErr, setMovErr] = useState(false)
   const [tariffs, setTariffs] = useState(null)
-  const [limits, setLimits] = useState(null)
   const [limitsErr, setLimitsErr] = useState(null)
   const [quote, setQuote] = useState(null)
   const [currency, setCurrency] = useState('CLP')
   const [variantId, setVariantId] = useState(null)
-  const [amount, setAmount] = useState(DEFAULT_AMOUNT)
   const [busy, setBusy] = useState(false)
   const [topupErr, setTopupErr] = useState(null)
   const [legalAccepted, setLegalAccepted] = useState(false)
-  // Mercado Pago is the primary rail when the backend advertises it. Existing
-  // redirect and PayPal paths stay untouched behind the secondary control.
-  const [showAlternativePayment, setShowAlternativePayment] = useState(false)
-  const [mpState, setMpState] = useState('idle')
-  const [mpBusy, setMpBusy] = useState(false)
-  const [mpErr, setMpErr] = useState(null)
-  const [mpVariantId, setMpVariantId] = useState(null)
-  const mpBrick = useRef(null)
-  const mpBusyRef = useRef(false)
-  // Card form: idle → loading → ready (fields rendered) or unavailable (honest fallback).
-  const [cardState, setCardState] = useState('idle')
-  const [cardBusy, setCardBusy] = useState(false)
-  const [cardErr, setCardErr] = useState(null)
-  const cardFields = useRef(null)
-  const cardCreateOrder = useRef(null)
-  const selectedVariantRef = useRef(null)
-  // Providers render into ids we own; useId keeps them unique across sheet reopens.
-  const cardUid = useId().replace(/:/g, '')
-  const mpUid = useId().replace(/:/g, '')
-
-  const refreshWallet = useCallback(() => {
-    platformMe()
-      .then(({ balance: b }) => { if (b != null) useStore.setState({ balance: b }) })
-      .catch(() => {})
-    fetchMovements(1)
-      .then(r => { setMovs(r); setPage(1); setMovErr(false) })
-      .catch(() => {})
-  }, [])
 
   useEffect(() => {
     let alive = true
@@ -168,29 +124,15 @@ function WalletPanel({ close }) {
     load(1, true)
     fetchTariffs().then(r => { if (alive) setTariffs(r) }).catch(() => { if (alive) setTariffs([]) })
     fetchLimits()
-      .then(r => { if (alive) setLimits(r) })
       .catch(e => { if (alive) setLimitsErr(e) })
-    // The quote enriches the recharge when the platform offers it. A missing or
-    // failed quote leaves the existing CLP-only flow untouched and visible.
+    // The quote owns the available currencies, providers and prices. CLP is the
+    // default selection; a missing quote leaves the band visibly unavailable.
     fetchQuote().then(q => {
       if (!alive || !q) return
-      const available = q.currencies.filter(c => c.available)
-      const preferred = available.find(c => c.currency === q.defaultCurrency) || available[0] || null
-      const clpOption = available.find(c => c.currency === 'CLP') || null
-      const mpAvailable = hasMercadoPagoRail(clpOption?.providers ?? q.providers, q.mercadopago)
-      const primary = mpAvailable
-        ? available.find(c => c.currency === 'CLP') || preferred
-        : preferred
+      const primary = selectWalletCurrency(q)
       setQuote(q)
-      setCurrency(primary ? primary.currency : '')
-      setVariantId(primary && primary.currency === 'USD' && primary.variants[0]
-        ? primary.variants[0].variantId
-        : null)
-      if (mpAvailable) {
-        const mpOption = q.currencies.find(c => c.currency === 'CLP' && c.available)
-        setMpVariantId(mpOption && mpOption.variants[0] ? mpOption.variants[0].variantId : null)
-        setShowAlternativePayment(false)
-      }
+      setCurrency(primary ? primary.currency : 'CLP')
+      setVariantId(primary && primary.variants[0] ? primary.variants[0].variantId : null)
     })
     // A recharge just came back from the payment site? Say how it ended, once, kindly.
     checkReturnedTopUp()
@@ -207,136 +149,21 @@ function WalletPanel({ close }) {
   const selectedVariant = selectedOption
     ? selectedOption.variants.find(v => v.variantId === variantId) || null
     : null
-  selectedVariantRef.current = selectedVariant
 
-  const paypalInfo = quote ? quote.paypal : null
-  const cardWanted = currency === 'USD' && !!paypalInfo
-  const cardReady = cardWanted && cardState === 'ready'
-
-  const mpInfo = quote ? quote.mercadopago : null
-  // Mercado Pago charges CLP only: the card form belongs to that currency, so a
-  // person who switched to USD gets that rail's own payment, never a CLP form.
-  const selectedProviders = selectedOption?.providers ?? quote?.providers
-  const mpAvailable = currency === 'CLP' && hasMercadoPagoRail(selectedProviders, mpInfo)
-  // null when the selected currency has no rail other than the card form. The
-  // wallet then hides "Other payment methods" instead of offering a gateway the
-  // heart does not bill through.
+  // Each currency has one server-owned rail and one set of server-owned prices.
+  // A provider is usable only when the backend advertises it for that currency.
+  const selectedProviders = availableProvidersForCurrency(selectedOption, quote)
+  const expectedProvider = currency === 'USD' ? 'paypal' : 'mercadopago'
+  const railAvailable = selectedProviders.includes(expectedProvider)
+  // This value only controls honest fallback wording. The wallet never offers
+  // another provider when the platform did not advertise one.
   const alternativeProvider = alternativeRailProvider(selectedOption, quote)
-  const mpOption = quote ? quote.currencies.find(c => c.currency === 'CLP' && c.available) : null
-  const mpVariants = mpOption ? mpOption.variants : []
-  const mpVariant = mpVariants.find(v => v.variantId === mpVariantId) || mpVariants[0] || null
-  const mpAmount = mpVariant?.amountClp || quote?.iva?.total || clampAmount(amount, limits) || DEFAULT_AMOUNT
-  const mpWanted = mpAvailable && !showAlternativePayment
-  const mpReady = mpWanted && mpState === 'ready'
-
-  // Loads and mounts PayPal's card fields only while the USD rail is selected and
-  // the API exposed a public client id. Any failure leaves the card option off and
-  // the same-window gateway redirect on.
-  useEffect(() => {
-    if (!cardWanted) {
-      setCardState('idle')
-      return
-    }
-    let alive = true
-    setCardState('loading')
-    setCardErr(null)
-    cardFields.current = null
-    loadPaypalSdk(paypalInfo).then(paypal => {
-      if (!alive) return
-      if (!paypal) { setCardState('unavailable'); return }
-      let fields = null
-      try {
-        fields = paypal.CardFields({
-          style: CARD_STYLE,
-          inputEvents: {
-            onFocus: () => setCardErr(null),
-            onError: () => setCardErr(t('Check the card details and try again.')),
-          },
-          // The SDK hands over a token here; only the token leaves the card iframes.
-          createOrder: data => cardCreateOrder.current(data),
-          // The server answer already drives the UI inside createOrder.
-          onApprove: () => {},
-          onError: () => setCardErr(t("The card payment couldn't be completed — nothing was charged. Try another card or continue on the payment page.")),
-        })
-        fields.NameField().render('#pp-card-name-' + cardUid)
-        fields.NumberField().render('#pp-card-number-' + cardUid)
-        fields.ExpiryField().render('#pp-card-expiry-' + cardUid)
-        fields.CvvField().render('#pp-card-cvv-' + cardUid)
-      } catch {
-        if (alive) setCardState('unavailable')
-        return
-      }
-      if (!alive) {
-        try { if (typeof fields.teardown === 'function') fields.teardown() } catch { /* already gone */ }
-        return
-      }
-      cardFields.current = fields
-      setCardState('ready')
-    }).catch(() => { if (alive) setCardState('unavailable') })
-    return () => {
-      alive = false
-      const fields = cardFields.current
-      cardFields.current = null
-      try { if (fields && typeof fields.teardown === 'function') fields.teardown() } catch { /* already gone */ }
-    }
-  }, [cardWanted, paypalInfo?.clientId, paypalInfo?.environment, cardUid])
-
-  // Mercado Pago's Card Payment Brick owns the card fields in its own iframes.
-  // Its default submit button is hidden so the app's consent-gated button stays
-  // the only way to start a payment.
-  useEffect(() => {
-    if (!mpWanted) {
-      setMpState('idle')
-      setMpErr(null)
-      return
-    }
-    let alive = true
-    setMpState('loading')
-    setMpErr(null)
-    mpBrick.current = null
-    loadMercadoPagoSdk(mpInfo).then(async builder => {
-      if (!alive) return
-      if (!builder) { setMpState('unavailable'); return }
-      try {
-        const initialization = buildMercadoPagoInitialization(mpAmount, userEmail)
-        const controller = await builder.create('cardPayment', 'mp-card-' + mpUid, {
-          initialization,
-          callbacks: {
-            onReady: () => { if (alive) setMpState('ready') },
-            onSubmit: () => Promise.resolve(),
-            onError: error => {
-              if (!alive) return
-              setMpErr(t(cardFormUnavailableMessageKey(alternativeProvider, { includeCardRetry: true })))
-              if (error && error.type === 'critical') setMpState('unavailable')
-            },
-          },
-          customization: { visual: { hidePaymentButton: true } },
-          locale: 'es-CL',
-        })
-        if (!alive) {
-          try { if (controller && typeof controller.unmount === 'function') controller.unmount() } catch { /* already gone */ }
-          return
-        }
-        mpBrick.current = controller
-        setMpState('ready')
-      } catch {
-        if (alive) setMpState('unavailable')
-      }
-    }).catch(() => { if (alive) setMpState('unavailable') })
-    return () => {
-      alive = false
-      const controller = mpBrick.current
-      mpBrick.current = null
-      try { if (controller && typeof controller.unmount === 'function') controller.unmount() } catch { /* already gone */ }
-    }
-  }, [mpWanted, mpInfo?.publicKey, mpAmount, userEmail, mpUid])
 
   const chooseCurrency = option => {
     if (!option || !option.available) return
     setTopupErr(null)
-    setCardErr(null)
     setCurrency(option.currency)
-    setVariantId(option.currency === 'USD' && option.variants[0] ? option.variants[0].variantId : null)
+    setVariantId(option.variants[0] ? option.variants[0].variantId : null)
   }
 
   // Neutral copy per failure: what happened and what to do next — never blame.
@@ -357,177 +184,57 @@ function WalletPanel({ close }) {
       setTopupErr(t('Accept the Terms and Conditions and the Privacy Policy to continue.'))
       return
     }
-    let orderAmount = null
-    let orderOptions = { currency: 'CLP', legalConsent: { terms: true, privacy: true } }
-    if (currency === 'USD') {
-      if (!selectedVariant) { setTopupErr(t('Choose an option first.')); return }
-      orderOptions = { currency: 'USD', variantId: selectedVariant.variantId, legalConsent: { terms: true, privacy: true } }
-    } else if (currency === 'CLP') {
-      const clamped = clampAmount(amount, limits)
-      if (!clamped) { setTopupErr(t('Choose an amount first — pick a pack or type one.')); return }
-      orderAmount = clamped
-      // This branch is the redirect rail, and a currency the heart bills through
-      // the in-app card form has none. Sending it anyway would charge through a
-      // gateway the heart never chose for CLP, so we say where the payment lives.
-      if (!alternativeProvider) {
-        setShowAlternativePayment(false)
-        setTopupErr(t('This recharge is paid with a card in the form above — continue there.'))
-        return
-      }
-      orderOptions = {
-        ...orderOptions,
-        provider: alternativeProvider,
-      }
-    } else {
-      setTopupErr(t('No recharge options are available right now.'))
+    if (!selectedVariant) {
+      setTopupErr(t('Choose an option first.'))
       return
     }
     setBusy(true); setTopupErr(null)
     try {
-      const { order } = await createOrder(orderAmount, orderOptions)
-      const url = order && (order.redirect_url || order.redirectUrl)
-      if (!url) {
-        setTopupErr(t("Couldn't start the payment — try again in a moment."))
-        setBusy(false); return
+      const result = await startWalletPayment({
+        currency,
+        variantId: selectedVariant.variantId,
+        legalAccepted,
+        // Breadcrumb BEFORE the hosted page opens: coming back is detected even if
+        // the browser threw the page state away.
+        onOrderCreated: orderId => saveTopupRecord(orderId),
+      })
+      if (!result.navigated) {
+        setTopupErr(t("Couldn't open the payment page — try again in a moment."))
       }
-      // Breadcrumb BEFORE the gateway opens: coming back is detected even if the
-      // browser threw the page state away. The voucher lookup needs the order id.
-      const orderId = order && (order.id || order.order_id || order.orderId)
-      if (orderId) saveTopupRecord(orderId)
-      // Same window, always: the gateway replaces the app and the boot check speaks
-      // the result when the person comes back.
-      const went = goToPayment(url)
-      setBusy(false)
-      if (!went) setTopupErr(t("Couldn't open the payment page — try again in a moment."))
     } catch (e) {
       setTopupErr(errorCopy(e))
+    } finally {
       setBusy(false)
-    }
-  }
-
-  // Runs inside PayPal's createOrder callback: extract the token, post it with the
-  // selected variant, and let the server answer decide what the UI says.
-  cardCreateOrder.current = async data => {
-    const variant = selectedVariantRef.current
-    if (!legalAccepted) {
-      setCardErr(t('Accept the Terms and Conditions and the Privacy Policy to continue.'))
-      throw new Error('Legal consent required')
-    }
-    if (!variant) {
-      setCardErr(t('Choose an option first.'))
-      throw new Error('No USD variant selected')
-    }
-    const token = extractCardToken(data)
-    if (!token) {
-      setCardErr(t('We could not read the card details — please enter them again.'))
-      throw new Error('No card token')
-    }
-    setCardBusy(true); setCardErr(null)
-    try {
-      const { order } = await createCardOrder(variant.variantId, token, {
-        legalConsent: { terms: true, privacy: true },
-      })
-      if (!order || (!order.orderId && !order.providerOrderId)) {
-        setCardErr(t("Couldn't complete the card payment — try again in a moment."))
-        throw new Error('Malformed card order response')
-      }
-      // Drive the result from the server response, not from an SDK callback:
-      // APPROVED means the capture already happened and the credits are in.
-      const outcome = paymentOutcome(order.status, order.statusDetail)
-      if (outcome.kind === 'approved') refreshWallet()
-      useUI.getState().openSheet(c2 => <TopUpStatusSheet result={{ kind: outcome.kind, status: order.status, statusDetail: order.statusDetail }} close={c2} />)
-      return order.providerOrderId || order.orderId
-    } catch (e) {
-      setCardErr(errorCopy(e))
-      throw e
-    } finally {
-      setCardBusy(false)
-    }
-  }
-
-  const submitCard = () => {
-    if (cardBusy) return
-    const fields = cardFields.current
-    if (!fields || typeof fields.submit !== 'function') {
-      setCardErr(t("The card form isn't available right now — you can continue on the payment page."))
-      return
-    }
-    setCardErr(null)
-    try {
-      const pending = fields.submit()
-      if (pending && typeof pending.catch === 'function') pending.catch(() => {})
-    } catch {
-      setCardErr(t("We couldn't send the card details — please try again."))
-    }
-  }
-
-  const submitMercadoPago = async () => {
-    if (mpBusyRef.current) return
-    if (!legalAccepted) {
-      setMpErr(t('Accept the Terms and Conditions and the Privacy Policy to continue.'))
-      return
-    }
-    if (!mpVariant) {
-      setMpErr(t('Card recharge options are not available right now.'))
-      return
-    }
-    const controller = mpBrick.current
-    if (!controller || typeof controller.getFormData !== 'function') {
-      setMpErr(t(cardFormUnavailableMessageKey(alternativeProvider)))
-      return
-    }
-    mpBusyRef.current = true
-    setMpBusy(true); setMpErr(null)
-    try {
-      const cardData = normalizeMercadoPagoCardData(await controller.getFormData())
-      if (!cardData) {
-        setMpErr(t('We could not read the card details — please enter them again.'))
-        return
-      }
-      const payer = buildMercadoPagoPayer(userEmail, cardData.payer)
-      if (!payer) {
-        setMpErr(t(cardFormUnavailableMessageKey(alternativeProvider)))
-        return
-      }
-      const { order } = await createCardOrder(mpVariant.variantId, cardData.token, {
-        provider: 'mercadopago',
-        issuerId: cardData.issuerId,
-        paymentMethodId: cardData.paymentMethodId,
-        installments: cardData.installments,
-        payer,
-        legalConsent: { terms: true, privacy: true },
-      })
-      if (!order || (!order.orderId && !order.providerOrderId)) {
-        setMpErr(t("Couldn't complete the card payment — try again in a moment."))
-        return
-      }
-      const outcome = paymentOutcome(order.status, order.statusDetail)
-      if (outcome.kind === 'approved') refreshWallet()
-      useUI.getState().openSheet(c2 => <TopUpStatusSheet result={{ kind: outcome.kind, status: order.status, statusDetail: order.statusDetail }} close={c2} />)
-    } catch (e) {
-      setMpErr(errorCopy(e))
-    } finally {
-      mpBusyRef.current = false
-      setMpBusy(false)
     }
   }
 
   const shown = movs ? movs.items : null
   const groups = shown ? groupMovements(shown) : []
-  const usdPackList = selectedOption ? usdPacks(selectedOption) : []
-  // The breakdown belongs to the price being paid: the picked card variant when
-  // the card rail leads, and nothing when the buyer switches to the gateway.
-  const visibleIva = mpAvailable && !showAlternativePayment
-    ? (mpVariant && mpVariant.iva) || (quote ? quote.iva : null)
-    : null
+  const quoteCurrencies = quote ? quote.currencies : []
+  const currencyRows = ['CLP', 'USD'].map(code => (
+    quoteCurrencies.find(option => option.currency === code) || {
+      currency: code,
+      available: false,
+      reason: t('Not available right now.'),
+      variants: [],
+      providers: [],
+    }
+  )).concat(quoteCurrencies.filter(option => option.currency !== 'CLP' && option.currency !== 'USD'))
+  const variantList = selectedOption ? selectedOption.variants : []
+  const visibleIva = selectedVariant?.iva || (currency === 'CLP' && quote ? quote.iva : null)
   const displayCurrency = currency || 'CLP'
-  const fallbackTotal = mpAvailable && !showAlternativePayment
-    ? mpAmount
-    : currency === 'USD'
+  const displayedTotal = visibleIva
+    ? visibleIva.total
+    : displayCurrency === 'USD'
       ? selectedVariant?.priceUsd || 0
-      : clampAmount(amount, limits) || 0
-  const displayedTotal = visibleIva ? visibleIva.total : fallbackTotal
+      : selectedVariant?.amountClp || 0
   const displayMoney = value => formatMoney(value, displayCurrency) + (displayCurrency === 'CLP' ? ' CLP' : '')
+  const canPay = railAvailable && !!selectedVariant
+  const unavailableCopy = !railAvailable && alternativeProvider
+    ? t('This payment method is not available right now — you can choose another currency.')
+    : !railAvailable
+      ? t('This payment method is not available right now — please try again in a moment.')
+      : t('No recharge options are available right now.')
   return <>
     <h3>{t('Wallet')}</h3>
 
@@ -570,7 +277,7 @@ function WalletPanel({ close }) {
           <input
             type="checkbox"
             checked={legalAccepted}
-            onChange={e => { setLegalAccepted(e.target.checked); setTopupErr(null); setCardErr(null); setMpErr(null) }}
+            onChange={e => { setLegalAccepted(e.target.checked); setTopupErr(null) }}
             style={{ marginTop: 2, flexShrink: 0 }}
           />
           <span>
@@ -581,54 +288,14 @@ function WalletPanel({ close }) {
           </span>
         </label>
       </div>
-      {mpAvailable && !showAlternativePayment ? <>
-        {mpVariants.length > 0 ? <div className="chips" style={{ marginBottom: 10 }}>
-          {mpVariants.map(variant => (
-            <button
-              key={variant.variantId}
-              className={'chip nocap' + (mpVariant?.variantId === variant.variantId ? ' on' : '')}
-              aria-pressed={mpVariant?.variantId === variant.variantId}
-              onClick={() => { setMpVariantId(variant.variantId); setMpErr(null) }}
-            >
-              {variant.amountClp != null ? fmtNum(variant.amountClp) + ' CLP' : '—'}
-              {variant.credits != null ? ` · ${t('{0} credits', fmtNum(variant.credits))}` : ''}
-            </button>
-          ))}
-        </div> : <div className="dim small" style={{ marginBottom: 10 }}>
-          {t('Card recharge options are not available right now.')}
-        </div>}
-        <div className="muted small" style={{ margin: '0 2px 8px' }}>{t('Pay with a card — no account needed.')}</div>
-        <div id={'mp-card-' + mpUid} style={{ margin: '0 2px 10px' }} />
-        {mpState === 'loading' && <div className="dim small" style={{ margin: '0 2px 8px' }}>
-          {t('Loading the card form…')}
-        </div>}
-        {mpState === 'unavailable' && <div className="dim small" style={{ margin: '0 2px 8px' }}>
-          {t(cardFormUnavailableMessageKey(alternativeProvider))}
-        </div>}
-        <Button
-          variant="primary"
-          disabled={!legalAccepted || mpBusy || !mpVariant || mpState !== 'ready'}
-          onClick={submitMercadoPago}
-        >
-          {mpBusy
-            ? t('Processing the payment…')
-            : mpVariant && mpVariant.credits != null
-              ? t('Add {0} in credits · {1} credits', displayMoney(mpAmount), fmtNum(mpVariant.credits))
-              : t('Add {0} in credits', displayMoney(mpAmount))}
-        </Button>
-        {mpErr && <div className="dim small" style={{ marginTop: 8 }}>{mpErr}</div>}
-        {alternativeProvider ? <Button variant="ghost" className="dim" style={{ marginTop: 8 }} onClick={() => { setShowAlternativePayment(true); setTopupErr(null); setCardErr(null); setMpErr(null) }}>
-          {t('Other payment methods')}
-        </Button> : null}
-      </> : <>
-      {quote && <div style={{ margin: '0 2px 12px' }}>
-        {quote.detectedCountry && <div className="muted small" style={{ marginBottom: 8 }}>
+      <div style={{ margin: '0 2px 12px' }}>
+        {quote?.detectedCountry && <div className="muted small" style={{ marginBottom: 8 }}>
           {t('Detected country: {0}', quote.detectedCountry)}
         </div>}
         <div className="row between" style={{ gap: 10 }}>
           <span className="muted small">{t('Payment currency')}</span>
           <div className="chips">
-            {quote.currencies.map(option => (
+            {currencyRows.map(option => (
               <button
                 key={option.currency}
                 className={'chip' + (currency === option.currency ? ' on' : '')}
@@ -641,88 +308,37 @@ function WalletPanel({ close }) {
             ))}
           </div>
         </div>
-        {quote.currencies.filter(option => !option.available).map(option => (
+        {quote && currencyRows.filter(option => !option.available).map(option => (
           <div key={option.currency} className="dim small" style={{ marginTop: 8, lineHeight: 1.5 }}>
             <span style={{ fontWeight: 600 }}>{option.currency}:</span>{' '}
             {option.reason || t('Not available right now.')}
           </div>
         ))}
+      </div>
+      {railAvailable && variantList.length > 0 ? <div className="chips" style={{ marginBottom: 10 }}>
+        {variantList.map(variant => {
+          const price = displayCurrency === 'USD'
+            ? usdPriceLabel(variant) || '—'
+            : variant.amountClp != null ? fmtNum(variant.amountClp) + ' CLP' : '—'
+          return <button
+            key={variant.variantId}
+            className={'chip nocap' + (selectedVariant?.variantId === variant.variantId ? ' on' : '')}
+            aria-pressed={selectedVariant?.variantId === variant.variantId}
+            onClick={() => { setVariantId(variant.variantId); setTopupErr(null) }}
+          >
+            {price}{variant.credits != null ? ` · ${t('{0} credits', fmtNum(variant.credits))}` : ''}
+          </button>
+        })}
+      </div> : <div className="dim small" style={{ marginBottom: 10 }}>
+        {unavailableCopy}
       </div>}
-      {showsCustomAmount(currency) ? <>
-        <div className="chips" style={{ marginBottom: 10 }}>
-          {PRESETS.map(p => {
-            const v = clampAmount(p, limits) || p
-            return <button key={p} className={'chip' + (amount === v ? ' on' : '')} onClick={() => setAmount(v)}>
-              {fmtNum(v)} CLP
-            </button>
-          })}
-        </div>
-        {limits && <div className="dim small" style={{ margin: '0 2px 10px' }}>
-          {limits.min != null || limits.max != null
-            ? t('Recharges run from {0} to {1} CLP.', limits.min != null ? fmtNum(limits.min) : '—', limits.max != null ? fmtNum(limits.max) : '—')
-            : null}
-        </div>}
-        <Button variant="primary" disabled={busy || !legalAccepted} onClick={startTopup}>
-          {busy ? t('Opening the payment site…') : t('Add {0} CLP in credits', fmtNum(amount))}
-        </Button>
-      </> : currency === 'USD' ? <>
-        <div className="chips" style={{ marginBottom: 10 }}>
-          {usdPackList.length ? usdPackList.map(pack => (
-            <button
-              key={pack.variantId}
-              className={'chip nocap' + (variantId === pack.variantId ? ' on' : '')}
-              aria-pressed={variantId === pack.variantId}
-              onClick={() => { setVariantId(pack.variantId); setTopupErr(null); setCardErr(null) }}
-            >
-              {pack.price}{pack.credits != null ? ` · ${t('{0} credits', fmtNum(pack.credits))}` : ''}
-            </button>
-          )) : <div className="dim small">{t('No recharge options are available right now.')}</div>}
-        </div>
-        {cardWanted ? <>
-          <div className="muted small" style={{ margin: '0 2px 8px' }}>{t('Pay with a card — no account needed.')}</div>
-          {/* PayPal owns these iframes: the card data never enters our state. */}
-          <div style={{ display: 'grid', gap: 8, margin: '0 2px 10px' }}>
-            <div id={'pp-card-name-' + cardUid} />
-            <div id={'pp-card-number-' + cardUid} />
-            <div className="row" style={{ gap: 8 }}>
-              <div id={'pp-card-expiry-' + cardUid} style={{ flex: 1 }} />
-              <div id={'pp-card-cvv-' + cardUid} style={{ flex: 1 }} />
-            </div>
-          </div>
-          {cardState === 'loading' && <div className="dim small" style={{ margin: '0 2px 8px' }}>
-            {t('Loading the card form…')}
-          </div>}
-          {cardState === 'unavailable' && <div className="dim small" style={{ margin: '0 2px 8px' }}>
-            {t("The card form isn't available right now — you can continue on the payment page.")}
-          </div>}
-        </> : <div className="dim small" style={{ margin: '0 2px 8px' }}>
-          {t('Card payment is not available right now — you will continue on the payment page.')}
-        </div>}
-        <Button
-          variant="primary"
-          disabled={busy || cardBusy || !legalAccepted || !selectedVariant || (cardWanted && cardState === 'loading')}
-          onClick={cardReady ? submitCard : startTopup}
-        >
-          {cardBusy
-            ? t('Processing the payment…')
-            : busy
-              ? t('Opening the payment site…')
-              : selectedVariant
-                ? (selectedVariant.credits != null
-                  ? t('Add {0} in credits · {1} credits', usdPriceLabel(selectedVariant) || '—', fmtNum(selectedVariant.credits))
-                  : t('Add {0} in credits', usdPriceLabel(selectedVariant) || '—'))
-                : t('Choose an option first.')}
-        </Button>
-        {cardErr && <div className="dim small" style={{ marginTop: 8 }}>{cardErr}</div>}
-      </> : <div className="muted small">{t('No recharge options are available right now.')}</div>}
-      {mpAvailable && showAlternativePayment ? <Button variant="ghost" className="dim" style={{ marginTop: 8 }} onClick={() => { setShowAlternativePayment(false); setTopupErr(null); setCardErr(null); setMpErr(null) }}>
-        {t('Back to card payment')}
+      {canPay ? <Button variant="primary" disabled={busy || !legalAccepted} onClick={startTopup}>
+        {t(walletPayButtonLabelKey(currency))}
       </Button> : null}
-      </>}
       {topupErr && <div className="dim small" style={{ marginTop: 8 }}>{topupErr}</div>}
-      {mpAvailable && !showAlternativePayment ? null : cardReady ? null : <div className="dim small" style={{ marginTop: 8, lineHeight: 1.5 }}>
+      {canPay ? <div className="dim small" style={{ marginTop: 8, lineHeight: 1.5 }}>
         {t('The payment continues in this same window.')}
-      </div>}
+      </div> : null}
     </>}
 
     {/* ---------- cost per operation ---------- */}
