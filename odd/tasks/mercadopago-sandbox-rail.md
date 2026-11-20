@@ -392,3 +392,54 @@ At that revision, T13 remained incomplete because the Brick had not mounted. The
 #### Next step
 
 T13 remains incomplete. The parent must deploy this T18 work unit through a Cloudflare Pages Functions-capable deployment path that includes the repository-root `functions/` directory, then rerun the authorized no-order/no-charge smoke. If the Brick mounts, record the consent, amount, IVA-inclusive price, and RUT request without submitting an order. The backend public-key `404 public key not found` and T12's protected card/RUT inputs remain separate prerequisites for T14–T15.
+
+## 11. Scope correction — remove RUT, enable the form, fix modal dismissal — 2026-11-20
+
+### Authorized outcome
+
+- Remove the Mercado Pago RUT request completely. Do not show a RUT label or field, do not validate or store a RUT for this checkout, and do not submit a RUT in the card-order request.
+- Make the live Mercado Pago card form operational. The already-built CSP-nonce correction (`8f9d114`) addresses the SDK bootstrap policy; the running quote credential must also resolve to a valid production public key.
+- Make every application modal/sheet stay open when the backdrop is clicked. Explicit close controls remain available; swipe-to-dismiss remains a separate behavior unless a later product decision changes it.
+- Deploy only the authorized front/API corrections and prove the result through CDP with **zero order/payment-creation POSTs**. No purchase, card entry, order creation, or balance change is authorized.
+
+### Work units
+
+- [ ] **T19 — Remove RUT from the Mercado Pago checkout.** The front work unit is complete: the wallet no longer asks for or reads a profile RUT, the Brick/payer/card-order payload contains no customer identification, and the obsolete checkout copy is removed. The separate API provider update remains open and unverified; T19 stays open until that side accepts payer email without identification.
+- [x] **T20 — Make modal backdrops non-dismissible globally.** The shared modal/sheet backdrop no longer dismisses on click. Explicit close controls and the locked-sheet swipe behavior remain unchanged.
+- [ ] **T21 — Repair the live quote credential and prove the form.** Identify the matching production Mercado Pago credential pair without exposing values, correct the running configuration, deploy the authorized corrections, and run a CDP no-order/no-charge smoke that proves the Brick mounts.
+- [x] **T12/T14/T15 — Live purchase inputs and purchase execution are not authorized for this scope.** The pinned account, card fixture, and RUT are not required to mount and visually verify the form. No purchase will be attempted.
+
+### Acceptance criteria
+
+- No visible or client-side Mercado Pago RUT request remains; the card-order request contains no identification.
+- The live 1,000 CLP Mercado Pago quote returns a valid production public key and the Brick mounts through CDP.
+- The smoke records zero requests to `/payments/orders`, `/payments/orders/card`, Mercado Pago `/v1/payments`, or an equivalent order/capture endpoint.
+- Clicking a modal backdrop leaves the modal open; explicit close controls still close it.
+- Front and API regressions, production builds, deployment readback, and the CDP smoke pass with observed evidence recorded here.
+
+### Route and delegation
+
+- **T19/T20:** delegated direct work is required because each unit spans multiple non-trivial files. Two bounded `general` delegations were attempted and failed before any write with provider HTTP 429 responses; no source change was made by those attempts. Re-launch one writer when provider capacity is available; do not create parallel writers.
+- **T21:** delegated direct per-action execution for deployment and CDP smoke, with the parent retaining the no-purchase safety boundary.
+
+### Progress
+
+- 2026-11-20 — Scope corrected after the owner explicitly rejected customer RUT collection. The previous T12–T15 purchase objective is superseded by T19–T21.
+
+### T19/T20 front work-unit evidence
+
+- Checkout privacy: the wallet no longer sources a profile RUT, renders a RUT field or hint, validates a RUT, or submits customer identification. Brick initialization and the card-order payer contain the payer email only; normalized card data discards any supplied identification.
+- Modal behavior: both shared `.mback` elements are inert. The explicit sheet close control and the existing locked-sheet swipe guard remain represented and unchanged.
+- Rollback boundary: revert only this work-unit commit. Its source boundary is `src/components/Wallet.jsx`, `src/lib/platform/wallet.js`, `src/locales/es.js`, `src/lib/platform/wallet.test.js`, `src/components/Modals.jsx`, `src/components/Modals.test.js`, and the T19/T20 evidence in this section; no API, deployment, credential, order, or T21 work is included.
+- Commit identity: `fix(wallet): remove RUT request and lock modal dismissal`, based on `8f9d11476d4f3a9a15e30caa031addc18bb48e3d`. The final commit object ID is recorded in the work-unit handoff because a commit cannot contain its own object ID.
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Focused wallet/modal regressions | `npx vitest run src/lib/platform/wallet.test.js src/components/Modals.test.js` | passed — 85/85 tests in 2 files; 1.06s |
+| Full unit suite | `npm test` | passed — 561/561 tests in 39 files; 18.01s |
+| Production build | `npm run build` | passed — 138 modules transformed; built in 1.70s (Vite reported the pre-existing chunk-size warning) |
+| Diff hygiene | `git diff --check` | passed — no output |
+| Production RUT/identification scan | recursive `grep` over `src` excluding test files | passed — no `RUT` or `identification` matches in production front source |
+| Modal backdrop scan | exact `.mback` click-handler grep in `src/components/Modals.jsx` | passed — no click handler on either shared backdrop |
+| Test side-effect scan | order-endpoint grep plus direct-`fetch` grep over front test files | passed — order endpoint strings occur only in test assertions/stubbed calls; no direct `fetch(...)` call exists, and `wallet.test.js` installs 29 fetch stubs |
+| Runtime harness | N/A | deployment, credentials, card entry, order creation, and purchase were not authorized; no order/payment endpoint was called |

@@ -540,66 +540,24 @@ export function loadPaypalSdk(paypal) {
 
 /* ============================ Mercado Pago Brick ============================ */
 
-// Mercado Pago only accepts a complete RUT identification. Keep the value in
-// the shape the provider expects and reject an invalid check digit before a
-// card form can be submitted.
-export function normalizeMercadoPagoRut(value) {
-  if (typeof value !== 'string') return ''
-  return value.replace(/[^0-9Kk-]/g, '').toUpperCase()
-}
-
-export function isValidMercadoPagoRut(value) {
-  const normalized = normalizeMercadoPagoRut(value)
-  const match = /^(\d{1,10})-?([0-9K])$/.exec(normalized)
-  if (!match) return false
-
-  let sum = 0
-  let factor = 2
-  for (let index = match[1].length - 1; index >= 0; index -= 1) {
-    sum += Number(match[1][index]) * factor
-    factor = factor === 7 ? 2 : factor + 1
-  }
-  let expected = 11 - (sum % 11)
-  if (expected === 11) expected = 0
-  if (expected === 10) expected = 'K'
-  return String(expected) === match[2]
-}
-
-// Builds the Brick initialization without ever sending an identification that
-// has no number. A missing or invalid RUT is simply omitted so the Brick can
-// still mount; the wallet asks for a valid RUT before submission instead.
-export function buildMercadoPagoInitialization(amount, email, rut) {
+// Builds the Brick initialization with the amount and payer email only.
+export function buildMercadoPagoInitialization(amount, email) {
   const initialization = { amount }
   const payerEmail = stringOrNull(email)
   if (!payerEmail) return initialization
 
-  const payer = { email: payerEmail }
-  const normalizedRut = normalizeMercadoPagoRut(rut)
-  if (isValidMercadoPagoRut(normalizedRut)) {
-    payer.identification = { type: 'RUT', number: normalizedRut }
-  }
-  initialization.payer = payer
+  initialization.payer = { email: payerEmail }
   return initialization
 }
 
-// Builds the payer sent with the card order. A valid RUT is mandatory here;
-// the Brick's own RUT wins when it is valid, otherwise the wallet value is used.
-export function buildMercadoPagoPayer(email, rut, brickPayer) {
-  const normalizedRut = normalizeMercadoPagoRut(rut)
-  if (!isValidMercadoPagoRut(normalizedRut)) return null
-
+// Builds the payer sent with the card order. The Brick payer email wins when
+// available; only the payer email is collected or forwarded.
+export function buildMercadoPagoPayer(email, brickPayer) {
   const source = isObject(brickPayer) ? brickPayer : {}
   const payerEmail = stringOrNull(source.email) || stringOrNull(email)
   if (!payerEmail) return null
 
-  const sourceIdentification = isObject(source.identification) ? source.identification : {}
-  const sourceNumber = stringOrNull(sourceIdentification.number)
-  const sourceType = stringOrNull(sourceIdentification.type)?.toUpperCase()
-  const identification = sourceType === 'RUT' && isValidMercadoPagoRut(sourceNumber)
-    ? { type: 'RUT', number: normalizeMercadoPagoRut(sourceNumber) }
-    : { type: 'RUT', number: normalizedRut }
-
-  return { email: payerEmail, identification }
+  return { email: payerEmail }
 }
 
 // The official Checkout Bricks SDK v2. The public key comes from the quote;
@@ -708,16 +666,13 @@ export function normalizeMercadoPagoCardData(data) {
   const installments = numberOrNull(data.installments)
   const payer = isObject(data.payer) ? data.payer : null
   const email = payer ? stringOrNull(payer.email) : null
-  const identification = payer && isObject(payer.identification) ? payer.identification : null
-  const type = identification ? stringOrNull(identification.type)?.toUpperCase() : null
-  const number = identification ? stringOrNull(identification.number) : null
   if (!token || !issuerId || !paymentMethodId || installments == null || installments < 1 || !email) return null
   return {
     token,
     issuerId,
     paymentMethodId,
     installments: Math.round(installments),
-    payer: { email, identification: type && number ? { type, number } : null },
+    payer: { email },
   }
 }
 
@@ -759,11 +714,8 @@ export async function createCardOrder(variantId, cardToken, {
     body.payment_method_id = stringOrNull(paymentMethodId)
     body.installments = numberOrNull(installments)
     if (isObject(payer)) {
-      body.payer = { email: stringOrNull(payer.email) }
-      const identification = isObject(payer.identification) ? payer.identification : null
-      const type = identification ? stringOrNull(identification.type)?.toUpperCase() : null
-      const number = identification ? stringOrNull(identification.number) : null
-      if (type && number) body.payer.identification = { type, number }
+      const payerEmail = stringOrNull(payer.email)
+      if (payerEmail) body.payer = { email: payerEmail }
     }
   } else if (selectedProvider) {
     body.provider = selectedProvider

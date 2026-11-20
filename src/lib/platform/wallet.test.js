@@ -6,7 +6,7 @@ import {
   normalizeQuote, fetchQuote, formatMoney,
   usdPriceLabel, usdPacks, showsCustomAmount, normalizePaypalInfo,
   normalizeMercadoPagoInfo, normalizeProviderKeys, normalizeIva, hasMercadoPagoRail, alternativeRailProvider,
-  normalizeMercadoPagoRut, isValidMercadoPagoRut, buildMercadoPagoInitialization, buildMercadoPagoPayer,
+  buildMercadoPagoInitialization, buildMercadoPagoPayer,
   paymentProviderMethod, availableProvidersForCurrency, selectInitialCurrency,
   normalizeMovements, fetchMovements, movementDirection, movementLabel, groupMovements,
   normalizeTariffs, fetchTariffs, tariffLabel,
@@ -689,59 +689,43 @@ describe('card checkout — token only, never raw card data', () => {
   })
 })
 
-describe('Mercado Pago Brick RUT preflight', () => {
-  it('never sends an incomplete or invalid identification to Brick initialization', () => {
-    expect(buildMercadoPagoInitialization(1000, 'buyer@example.com', '')).toEqual({
+describe('Mercado Pago checkout privacy', () => {
+  it('initializes the Brick with the amount and payer email only', () => {
+    expect(buildMercadoPagoInitialization(1000, 'buyer@example.com')).toEqual({
       amount: 1000,
       payer: { email: 'buyer@example.com' },
     })
-    expect(buildMercadoPagoInitialization(1000, 'buyer@example.com', '12.345.678-9')).toEqual({
-      amount: 1000,
-      payer: { email: 'buyer@example.com' },
-    })
-    expect(buildMercadoPagoInitialization(1000, 'buyer@example.com', '12.345.678-5')).toEqual({
-      amount: 1000,
-      payer: {
-        email: 'buyer@example.com',
-        identification: { type: 'RUT', number: '12345678-5' },
-      },
-    })
+    expect(buildMercadoPagoInitialization(1000, '')).toEqual({ amount: 1000 })
   })
 
-  it('requires a valid RUT before it can build the order payer', () => {
-    expect(buildMercadoPagoPayer('buyer@example.com', '', null)).toBe(null)
-    expect(buildMercadoPagoPayer('buyer@example.com', '12.345.678-9', null)).toBe(null)
-    expect(buildMercadoPagoPayer('buyer@example.com', '12.345.678-5', null)).toEqual({
+  it('builds the order payer without any customer identification', () => {
+    expect(buildMercadoPagoPayer('buyer@example.com', null)).toEqual({
       email: 'buyer@example.com',
-      identification: { type: 'RUT', number: '12345678-5' },
     })
+    expect(buildMercadoPagoPayer('buyer@example.com', {
+      email: 'brick@example.com',
+      identification: { type: 'fixture', number: 'discarded' },
+    })).toEqual({ email: 'brick@example.com' })
   })
 
-  it('uses a valid RUT collected by the Brick and falls back to the wallet value otherwise', () => {
-    expect(buildMercadoPagoPayer('buyer@example.com', '12345678-5', {
-      email: 'brick@example.com',
-      identification: { type: 'RUT', number: '98765432-5' },
-    })).toEqual({
-      email: 'brick@example.com',
-      identification: { type: 'RUT', number: '98765432-5' },
-    })
-    expect(buildMercadoPagoPayer('buyer@example.com', '12345678-5', {
-      email: 'brick@example.com',
-      identification: { type: 'RUT', number: '98765432-9' },
-    })).toEqual({
-      email: 'brick@example.com',
-      identification: { type: 'RUT', number: '12345678-5' },
-    })
+  it('has no checkout RUT request copy or profile RUT field source', () => {
+    const walletSource = readFileSync(new URL('../../components/Wallet.jsx', import.meta.url), 'utf8')
+    const walletLibrarySource = readFileSync(new URL('./wallet.js', import.meta.url), 'utf8')
+    expect(walletSource).not.toMatch(/\bRUT\b|identification/i)
+    expect(walletLibrarySource).not.toMatch(/\bRUT\b|identification/i)
+    expect(walletSource).not.toContain('mp-rut')
+    expect(walletSource).not.toContain('s.user?.rut')
+
+    const obsoleteCopy = [
+      'RUT (for the receipt)',
+      'We only need it to issue the receipt.',
+      'We need your RUT to issue the receipt — add it below to continue.',
+      'Enter a valid RUT to issue the receipt.',
+    ]
+    for (const key of obsoleteCopy) expect(es[key]).toBeUndefined()
   })
 
-  it('normalizes and validates the Chilean RUT check digit', () => {
-    expect(normalizeMercadoPagoRut('12.345.678-5')).toBe('12345678-5')
-    expect(isValidMercadoPagoRut('12.345.678-5')).toBe(true)
-    expect(isValidMercadoPagoRut('12.345.678-9')).toBe(false)
-    expect(isValidMercadoPagoRut('not-a-rut')).toBe(false)
-  })
-
-  it('keeps the RUT backport isolated from the unrelated analytics consent work', () => {
+  it('keeps this checkout change isolated from the unrelated analytics consent work', () => {
     expect(existsSync(new URL('../../../public/js/analytics-consent.js', import.meta.url))).toBe(false)
     expect(existsSync(new URL('../../../public/css/analytics-consent.css', import.meta.url))).toBe(false)
     expect(readFileSync(new URL('../../../index.html', import.meta.url), 'utf8'))
@@ -752,7 +736,7 @@ describe('Mercado Pago Brick RUT preflight', () => {
 })
 
 describe('Mercado Pago card checkout', () => {
-  it('reads only the Brick token and the card metadata the backend needs', () => {
+  it('reads only the Brick token and card metadata and discards identification', () => {
     const out = normalizeMercadoPagoCardData({
       token: 'mp-token',
       issuer_id: '310',
@@ -760,7 +744,7 @@ describe('Mercado Pago card checkout', () => {
       installments: 1,
       payer: {
         email: 'buyer@example.com',
-        identification: { type: 'RUT', number: '12.345.678-9' },
+        identification: { type: 'fixture', number: 'discarded' },
       },
       card: { number: '4111111111111111', cvv: '123' },
     })
@@ -770,16 +754,15 @@ describe('Mercado Pago card checkout', () => {
       issuerId: '310',
       paymentMethodId: 'master',
       installments: 1,
-      payer: {
-        email: 'buyer@example.com',
-        identification: { type: 'RUT', number: '12.345.678-9' },
-      },
+      payer: { email: 'buyer@example.com' },
     })
     expect(JSON.stringify(out)).not.toContain('4111111111111111')
     expect(JSON.stringify(out)).not.toContain('123')
+    expect(JSON.stringify(out)).not.toContain('identification')
+    expect(JSON.stringify(out)).not.toContain('discarded')
   })
 
-  it('allows a buyer without a RUT to pay by card', () => {
+  it('normalizes the payer email without adding identification', () => {
     const out = normalizeMercadoPagoCardData({
       token: 'mp-token',
       issuer_id: '310',
@@ -793,11 +776,11 @@ describe('Mercado Pago card checkout', () => {
       issuerId: '310',
       paymentMethodId: 'master',
       installments: 1,
-      payer: { email: 'buyer@example.com', identification: null },
+      payer: { email: 'buyer@example.com' },
     })
   })
 
-  it('POSTs the pinned Mercado Pago body with its Idempotency-Key', async () => {
+  it('POSTs the Mercado Pago body without identification and with its Idempotency-Key', async () => {
     const m = mockFetch([res(200, {
       order_id: 'o-mp',
       provider_order_id: 'mp-order-1',
@@ -816,7 +799,7 @@ describe('Mercado Pago card checkout', () => {
       installments: 1,
       payer: {
         email: 'buyer@example.com',
-        identification: { type: 'RUT', number: '12.345.678-9' },
+        identification: { type: 'fixture', number: 'discarded' },
       },
       legalConsent: { terms: true, privacy: true },
     })
@@ -835,11 +818,11 @@ describe('Mercado Pago card checkout', () => {
       installments: 1,
       payer: {
         email: 'buyer@example.com',
-        identification: { type: 'RUT', number: '12.345.678-9' },
       },
       legal_consent: { terms: true, privacy: true },
       heart: 'metalgym88',
     })
+    expect(JSON.parse(call.opts.body).payer.identification).toBeUndefined()
     expect(order).toEqual({
       orderId: 'o-mp',
       providerOrderId: 'mp-order-1',
@@ -862,7 +845,7 @@ describe('Mercado Pago card checkout', () => {
       installments: 1,
       payer: {
         email: 'buyer@example.com',
-        identification: { type: 'RUT', number: '12.345.678-9' },
+        identification: { type: 'fixture', number: 'discarded' },
       },
       legalConsent: { terms: true, privacy: true },
     })

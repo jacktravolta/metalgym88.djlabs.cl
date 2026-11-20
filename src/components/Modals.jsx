@@ -55,14 +55,14 @@ function Sheet({ sheet }) {
   if (sheet.kind === 'center') {
     return (
       <div>
-        <div className="mback" onClick={() => { if (!sheet.locked) close() }} />
+        <div className="mback" />
         <div className="center">{sheet.render(close)}</div>
       </div>
     )
   }
   return (
     <div>
-      <div className="mback" onClick={() => { if (!sheet.locked) close() }} />
+      <div className="mback" />
       <div className={'sheet-wrap' + (sheet.className ? ' ' + sheet.className : '')} ref={frame}>
         <div className="sheet" ref={ref} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
           {!sheet.locked && <div className="sheet-close-anchor">

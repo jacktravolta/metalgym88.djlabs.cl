@@ -29,7 +29,7 @@ import {
   usdPriceLabel, usdPacks, showsCustomAmount, groupMovements,
   createOrder, createCardOrder, extractCardToken, normalizeMercadoPagoCardData,
   hasMercadoPagoRail, alternativeRailProvider, loadPaypalSdk, loadMercadoPagoSdk, paymentOutcome, goToPayment,
-  normalizeMercadoPagoRut, isValidMercadoPagoRut, buildMercadoPagoInitialization, buildMercadoPagoPayer,
+  buildMercadoPagoInitialization, buildMercadoPagoPayer,
   saveTopupRecord, checkReturnedTopUp,
 } from '../lib/platform/wallet.js'
 import Icon from './Icon.jsx'
@@ -109,13 +109,6 @@ function MovementDay({ group }) {
 function WalletPanel({ close }) {
   const balance = useStore(s => s.balance)
   const userEmail = useStore(s => s.user?.email) || ''
-  const userRut = normalizeMercadoPagoRut(useStore(s => s.user?.rut))
-  // The receipt (and the gateway) need the buyer's RUT. Prefer a valid profile
-  // value; otherwise the wallet asks for one before the card can be submitted.
-  const [rutInput, setRutInput] = useState('')
-  const enteredRut = normalizeMercadoPagoRut(rutInput)
-  const buyerRut = isValidMercadoPagoRut(userRut) ? userRut : enteredRut
-  const rutNeedsInput = !isValidMercadoPagoRut(userRut)
   const [movs, setMovs] = useState(null)          // { items, hasMore } — null = loading
   const [page, setPage] = useState(1)
   const [movErr, setMovErr] = useState(false)
@@ -305,7 +298,7 @@ function WalletPanel({ close }) {
       if (!alive) return
       if (!builder) { setMpState('unavailable'); return }
       try {
-        const initialization = buildMercadoPagoInitialization(mpAmount, userEmail, userRut)
+        const initialization = buildMercadoPagoInitialization(mpAmount, userEmail)
         const controller = await builder.create('cardPayment', 'mp-card-' + mpUid, {
           initialization,
           callbacks: {
@@ -336,7 +329,7 @@ function WalletPanel({ close }) {
       mpBrick.current = null
       try { if (controller && typeof controller.unmount === 'function') controller.unmount() } catch { /* already gone */ }
     }
-  }, [mpWanted, mpInfo?.publicKey, mpAmount, userEmail, userRut, mpUid])
+  }, [mpWanted, mpInfo?.publicKey, mpAmount, userEmail, mpUid])
 
   const chooseCurrency = option => {
     if (!option || !option.available) return
@@ -483,15 +476,6 @@ function WalletPanel({ close }) {
       setMpErr(t("The card form isn't available right now — you can use another payment method."))
       return
     }
-    // The receipt (and the gateway) need the buyer's RUT. If it is still
-    // missing or invalid we say so before touching the card, instead of
-    // failing the payment afterwards.
-    if (!isValidMercadoPagoRut(buyerRut)) {
-      setMpErr(t(buyerRut
-        ? 'Enter a valid RUT to issue the receipt.'
-        : 'We need your RUT to issue the receipt — add it below to continue.'))
-      return
-    }
     mpBusyRef.current = true
     setMpBusy(true); setMpErr(null)
     try {
@@ -500,9 +484,9 @@ function WalletPanel({ close }) {
         setMpErr(t('We could not read the card details — please enter them again.'))
         return
       }
-      const payer = buildMercadoPagoPayer(userEmail, buyerRut, cardData.payer)
+      const payer = buildMercadoPagoPayer(userEmail, cardData.payer)
       if (!payer) {
-        setMpErr(t('Enter a valid RUT to issue the receipt.'))
+        setMpErr(t("The card form isn't available right now — you can use another payment method."))
         return
       }
       const { order } = await createCardOrder(mpVariant.variantId, cardData.token, {
@@ -621,20 +605,6 @@ function WalletPanel({ close }) {
         {mpState === 'unavailable' && <div className="dim small" style={{ margin: '0 2px 8px' }}>
           {t("The card form isn't available right now — you can use another payment method.")}
         </div>}
-        {rutNeedsInput ? <div style={{ margin: '0 2px 10px' }}>
-          <label className="dim small" htmlFor="mp-rut">{t('RUT (for the receipt)')}</label>
-          <input
-            id="mp-rut"
-            className="field"
-            inputMode="numeric"
-            autoComplete="off"
-            placeholder="12.345.678-5"
-            value={rutInput}
-            onChange={e => { setRutInput(e.target.value); setMpErr(null) }}
-            style={{ width: '100%', marginTop: 6 }}
-          />
-          <div className="dim small" style={{ marginTop: 4 }}>{t('We only need it to issue the receipt.')}</div>
-        </div> : null}
         <Button
           variant="primary"
           disabled={!legalAccepted || mpBusy || !mpVariant || mpState !== 'ready'}
