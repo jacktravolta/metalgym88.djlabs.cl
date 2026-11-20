@@ -231,8 +231,8 @@ Complete the visible 1,000 CLP credit-purchase journey on the already-active Mer
 ### Current evidence
 
 - The running API resolves `metalgym88 + CLP` to Mercado Pago production.
-- The deployed front (`origin/main@5254b269`) initializes the Brick with an incomplete RUT and therefore renders the card form as unavailable.
-- The targeted correction from local `main@f432411` is now isolated on `feat/mercadopago-live-purchase` from deployed front revision `5254b269`; the unrelated privacy changes remain excluded.
+- The deployed front is `origin/main@1920605530af62db0e9a57badc8a02367890b094`; it contains the targeted Brick/RUT correction (the isolated fix in `ba830c5`, with the verification ledger in `1920605`).
+- The unrelated privacy changes remain excluded from `feat/mercadopago-live-purchase`.
 - The local MySQL database contains no Mercado Pago card token or card fixture.
 - `E2E_PAYPAL_CARD_*` is proven only for PayPal sandbox and cannot authorize a Mercado Pago production payment.
 - The pinned account has an email but no RUT; the corrected Brick requires a valid RUT before submission.
@@ -249,9 +249,10 @@ Complete the visible 1,000 CLP credit-purchase journey on the already-active Mer
 - [x] **T10 — Isolate the Brick/RUT fix.** Backport only the Mercado Pago initialization and RUT validation behavior onto a branch based on the deployed front revision; exclude unrelated privacy work.
 - [x] **T11 — Verify the targeted front.** Run focused wallet tests, the full unit suite, and a production build. Record the observed results.
 - [ ] **T12 — Obtain the missing live inputs.** Record explicit authorization for 1,000 CLP, Mercado Pago production, a human-approved production card, and the payer RUT. Card values must come from a local protected file, never chat or reports.
-- [ ] **T13 — Deploy and smoke-test.** Deploy the targeted front revision, confirm the Brick mounts, and verify the consent, amount, IVA-inclusive price, and RUT request before any order is created.
+- [ ] **T13 — Deploy and smoke-test.** Revision `1920605` is deployed, but the Brick did not mount in the no-order smoke because the live CSP omits the Mercado Pago SDK's inline-bootstrap hash. Keep this task open until the corrected CSP is deployed, the Brick mounts, and the consent, amount, IVA-inclusive price, and RUT request are verified before any order is created.
 - [ ] **T14 — Complete one CDP purchase.** Use one unique idempotency key, submit the Brick token once, wait for the verified webhook, and avoid retries after a provider status exists.
 - [ ] **T15 — Prove the credit.** Verify the order, voucher, balance delta, and exactly one `PURCHASE_CREDIT` movement for 1,000 credits.
+- [x] **T16 — Correct and protect the front CSP for the Mercado Pago SDK bootstrap.** Add only the hash observed in the browser to the mirrored static-host policies, preserve the restrictive script policy, and add a regression that rejects drift or omission. The source correction is complete in this work unit; production deployment and smoke remain part of T13.
 
 ### Acceptance criteria
 
@@ -270,7 +271,7 @@ Complete the visible 1,000 CLP credit-purchase journey on the already-active Mer
 | Full unit suite | `npx vitest run` | passed — 547/547 tests in 36 files |
 | Production build | `npm run build` | passed — 138 modules transformed; built in 1.38s (Vite reported a chunk-size warning) |
 | Runtime harness | N/A | Browser/provider execution was intentionally not attempted: no authorized payer RUT or usable Mercado Pago production card fixture is available, and this work unit forbids provider authentication and purchases. |
-| Live Brick smoke test | CDP against `https://metalgym88.djlabs.cl` | pending T13 |
+| Live Brick smoke test | CDP against `https://metalgym88.djlabs.cl` | blocked — revision `1920605` opened the wallet and received `GET /payments/quote` 200, but the Brick did not mount because the Mercado Pago SDK's inline bootstrap was blocked by CSP; zero order/provider-payment POSTs were sent |
 | Provider/order proof | `GET /payments/orders/{orderId}` and voucher | pending T15 |
 | Wallet proof | balance and credit movements | pending T15 |
 
@@ -292,6 +293,40 @@ Complete the visible 1,000 CLP credit-purchase journey on the already-active Mer
 | 2026-11-19 | Independent verification | Fresh read-only verifier returned PASS for the isolated fix, with no blocker or critical finding. It reran the focused wallet suite (83/83), full suite (547/547), and production build successfully. The parent also reran the focused wallet suite: 83/83 passed. |
 | 2026-11-19 | Residual RUT warning | A valid RUT entered only inside the Brick cannot bypass the explicit wallet-RUT preflight. The intended live path supplies the RUT in the wallet input, so this does not block the authorized journey; Brick-only collection remains unsupported. |
 
+### 2026-11-20 — deployed revision smoke and front CSP correction
+
+#### Production evidence
+
+- Front revision `1920605530af62db0e9a57badc8a02367890b094` (`1920605`) is deployed on `metalgym88.djlabs.cl`; it contains the Brick/RUT correction.
+- A no-order CDP smoke opened the wallet and received `GET /payments/quote` with HTTP 200. It created zero order/provider-payment POSTs, so the smoke did not create or charge an order.
+- The Brick did **not** mount. The browser console reported that the Mercado Pago SDK v2 inline bootstrap was blocked by CSP and required exactly this hash:
+  `sha256-A3HQMGCaYTLR55HokyyZBduy+DilrRCMRE/WGHXc5i4=`.
+- The live CSP already allowed the Mercado Pago hosts but omitted that inline-script hash.
+
+There are two independent blockers:
+
+1. **Front CSP:** the missing SDK inline-bootstrap hash prevents the Brick from mounting. T16 corrects the front source; T13 stays open until the corrected front is deployed and the Brick mounts.
+2. **Backend quote:** the public key returned by the quote is independently rejected by Mercado Pago with `404 public key not found`. This correction does not touch the backend or attempt to fix that blocker.
+
+#### CSP source and build path
+
+- The tracked root `_headers` and `public/_headers` files remain byte-for-byte identical. The root file is not a direct Vite build input; it is the repository's tracked static-host configuration mirror, introduced for the Cloudflare Pages response-header case. It is synchronized deliberately so a host/edge workflow that reads the repository-root configuration cannot publish a different policy.
+- The actual Vite static input is `public/_headers`; `npm run build` copies it to `dist/_headers`. `index.html` becomes `dist/index.html` and `dist/404.html`, carrying the CSP meta fallback.
+- T16 adds only the observed SDK hash to `script-src` in all three sources. It does not add `'unsafe-inline'`, `'unsafe-eval'`, a Mercado Pago wildcard, or weaken any other directive.
+- `scripts/csp.test.js` protects the contract: the two header sources must remain byte-identical, every policy source must contain the exact hash without broad script wildcards, and the response-header/meta policies may differ only in the two pre-existing header-only directives in this repository (`frame-ancestors` and `upgrade-insecure-requests`).
+
+#### CSP correction checks
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Focused CSP regression | `npx vitest run scripts/csp.test.js` | passed — 3/3 tests in 1 file |
+| Full unit suite | `npm test` | passed — 550/550 tests in 37 files |
+| Production build | `npm run build` | passed — 138 modules transformed; built in 1.94s (Vite reported the pre-existing chunk-size warning) |
+| Build readback | source → `dist/` inspection | `dist/_headers` is byte-identical to `public/_headers`; the exact hash is present in `dist/index.html` and `dist/404.html` |
+| Runtime harness | N/A | deployment and the production no-order smoke are owned by the parent session; this worker did not deploy, authenticate, create an order, or charge |
+
+The observed RED was the focused CSP test failing because the hash was absent from the first policy source. The final focused run is green.
+
 ### Next step
 
-T10–T11 are complete locally in commit `ba830c5`. T12 is blocked until the human-approved Mercado Pago production card and payer RUT are available from a protected local source. Do not deploy, authenticate to the provider, create an order, or attempt the purchase before that input exists. T13–T15 remain incomplete.
+Revision `1920605` is deployed, but T13 remains incomplete because the Brick has not mounted. The parent must deploy the T16 work-unit commit and rerun the authorized no-order/no-charge smoke; if the Brick mounts, record the consent, amount, IVA-inclusive price, and RUT request without submitting an order. The backend public-key blocker and T12's protected card/RUT inputs remain separate prerequisites for T14–T15.
