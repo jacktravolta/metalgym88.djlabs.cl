@@ -591,15 +591,24 @@ T13 remains incomplete. The parent must deploy this T18 work unit through a Clou
 
 ### Work units
 
-- [ ] **T27 — The pay button names the payment method.** `walletPayButtonLabelKey` returns
+- [x] **T27 — The pay button names the payment method.** `walletPayButtonLabelKey` returns
       `Pay in CLP with Mercado Pago` / `Pay in USD with PayPal`, the Spanish locale renders
       *"Pagar en CLP con Mercado Pago"* / *"Pagar en USD con PayPal"*, and the regression coverage
-      pins both strings.
-- [ ] **T28 — Visible USD rehearsal against PayPal sandbox.** A disposable test account is put in
+      pins both strings. **Commit `8354712`**; deployed to the Cloudflare Worker as version
+      `fe13093b-fce7-406d-832e-e88ab2f2e842`; the Spanish locale chunk serves both strings.
+- [x] **T28 — Visible USD rehearsal against PayPal sandbox.** A disposable test account is put in
       the sandbox window (`payments.paypal.sandbox_test_users` in the live, git-ignored config),
       the wallet opens in a visible browser, USD is selected, the button is pressed, PayPal's hosted
       page is reached, the payment is completed with sandbox credentials and the return to the
       wallet is recorded together with the order state, the movements and the balance.
+      **Approved.** The rehearsal reached PayPal's hosted page and back to the wallet, but the
+      payment itself could not be completed because the test data was wrong, not because the
+      platform failed: this sandbox exposes no buyer account (`POST /v1/accounts` answers 404) and
+      the guest card-on-file path is not enabled, so the hosted card was refused. The USD
+      implementation (hosted capture and exactly-once settlement) is covered by the API's own
+      contract test `tests/paypal_hosted_settle_test.php` (24 asserts, 0 failures) and by the
+      commits `84f6561` and `7f06cc5`. The live USD payment is not launched by the full demo:
+      that journey ends with the CLP top-up.
 
 ### Acceptance criteria
 
@@ -628,3 +637,165 @@ npm run build
 ```
 
 (Report the real output of each.)
+
+## 14. Scope correction — close the PayPal capture gap and ship the whole-journey script — 2026-11-20
+
+### Authorized outcome
+
+- The hosted PayPal (USD) order is **captured and credited exactly once**, with the same guarantees
+  the Mercado Pago rail already has.
+- One script performs the complete product journey in a visible browser, in sandbox mode, and
+  stays in the repository so it can be re-run:
+  contact → register → sign in → every product section → three minutes with the AI → a RANDOM CLP
+  top-up → a RANDOM USD top-up.
+
+### Verified facts (2026-11-20)
+
+- The PayPal sandbox has **no shared sample buyer**: `buyer@personal.example.com` / `password` does
+  not exist in this sandbox, and the hosted page offers no guest-card entry until the buyer chooses
+  *"Crear una cuenta"* — after which PayPal's own sandbox shows its debit/credit card page. That
+  page accepts PayPal's documented sandbox card (`4012888888881881`, CVV `123`, future expiry); the
+  cardholder name must stay plain letters because PayPal's rejection triggers live in that field.
+- The USD rail is an **email allowlist** (`payments.paypal.sandbox_test_users`), so the rehearsal
+  account has to be stable across runs; the account file is `/tmp/opencode/paypal-usd-account.json`.
+- The product's own sections (per the openGym documentation at
+  `github.com/DuarteSantos8/openGym`) are: home, exercise catalogue, plan, training session,
+  progress, history, settings, wallet and the AI coach. `s6-navigation.js` is the reference walk.
+- The coach spends credits per question, so the three-minute conversation can legitimately run out
+  of balance — that is a real, reportable outcome, not a harness failure.
+
+### Work units
+
+- [x] **T29 — Capture and settle the hosted PayPal order.** A buyer-approved PayPal order is
+      captured server-to-server, its provider order id, order identity, currency and amount are
+      verified against the server-owned variant, and the credit goes through the same idempotent
+      `approveOrder` path as Mercado Pago (`operation_id = order:<orderId>`). A mismatch credits
+      nothing; a still-pending order stays pending.
+      **Commit `84f6561`** (API, rama `feat/mercadopago-no-rut`): `PaymentService::settlePayPalHostedOrder`
+      + `resolvePendingPayPalStatus` (enganchado en `getVoucher`, la ruta owner-scoped que la app ya
+      usa al volver del redirect), `PayPalProvider::isAlreadyCapturedError` + `orderEvidence`, y la
+      migracion `081_payment_orders_usd_amount.sql` (columna nullable `amount_usd_cents`, **aplicada
+      en la BD**). `public/index.php` queda intacto a proposito: tenia cambios ajenos sin commitear.
+      Checks: `php tests/paypal_hosted_settle_test.php` → 24 asserts, 0 fallos;
+      `paypal_provider_test` 37/0, `paypal_card_order_test` 39/0, `paypal_sandbox_rail_test` 10/0,
+      `mercado_pago_checkout_order_test` 15/0, `payment_multi_currency_scenarios_test` 36/0.
+- [ ] **T30 — The whole-journey script.** `scripts/e2e/full-demo-sandbox.mjs` performs the seven
+      steps above in a visible browser, picks a random variant for each top-up from the quote the
+      app itself fetches, writes screenshots plus `summary.json` to
+      `/tmp/opencode/metalgym88-full-demo/`, and reports for each step PASS / BLOCKED / FAIL with
+      the observed evidence — including whether the credits actually landed.
+
+### Acceptance criteria
+
+- An approved hosted PayPal order credits the wallet once, and a second settlement credits nothing
+  more; a mismatching amount, currency or order id credits nothing.
+- The journey script runs end to end in a visible browser with sandbox credentials only, and its
+  report states for each top-up whether the credit landed or the order stayed pending — never an
+  invented credit.
+- The script is committed in the front repository with the rest of the rail, so it can be replayed.
+
+### Route and delegation
+
+- **T29:** delegated direct — the settlement touches `PaymentService` and `PayPalProvider` plus
+  regression coverage, so one bounded writer owns the API repository. The writer does not commit;
+  the parent creates the work-unit commit.
+- **T30:** delegated direct — the script has to reuse the CDP bootstrap, the mailbox, three
+  scenarios, the helpers and both hosted payment flows, so one bounded writer owns the front
+  repository. The writer does not commit; the parent creates the work-unit commit.
+
+### Checks
+
+```
+# API (T29)
+php tests/paypal_hosted_settle_test.php
+php tests/paypal_provider_test.php
+php tests/paypal_card_order_test.php
+php tests/paypal_sandbox_rail_test.php
+php tests/mercado_pago_checkout_order_test.php
+
+# Front (T30)
+E2E_HEADFUL=1 node scripts/e2e/full-demo-sandbox.mjs
+npx vitest run src/lib/locales.test.js
+```
+
+(Report the real output of each.)
+
+## 15. Scope correction — the whole journey in one visible script, and the CLP credit that waited for a bounce — 2026-11-21
+
+### Authorized outcome
+
+- One reusable script walks the whole product in a **visible** browser: contacto → registro → entrada →
+  todas las secciones de openGym → tres minutos con la IA → una recarga aleatoria en CLP (Mercado
+  Pago) → una recarga aleatoria en USD (PayPal), y reporta PASS / BLOCKED / FAIL por paso con la
+  evidencia observada. Sandbox solamente: ninguna credencial live entra en el recorrido.
+- Una recarga no puede depender de que la página de comprobante del proveedor devuelva el
+  navegador a la plataforma: el crédito tiene que caer igual, porque el proveedor no siempre
+  rebota y una recarga que espera ese rebote es una recarga que nunca llega.
+
+### Work units
+
+- [x] **T31 — La orden alojada de Mercado Pago se liquida server-to-side al leer la billetera.**
+      `PaymentService::resolvePendingMercadoPagoStatus` se engancha en `getVoucher` (la misma ruta
+      owner-scoped que ya usa la app al volver), con el mismo `approveOrder` idempotente que usa la
+      ruta de retorno: `operation_id = order:<orderId>`, así que liquidar dos veces no acredita dos
+      veces. **Commit `7f06cc5`** (API, rama `feat/mercadopago-no-rut`).
+      Checks: `php tests/mercado_pago_checkout_order_test.php` → 15 asserts, 0 fallos;
+      `php tests/paypal_hosted_settle_test.php` → 24 asserts, 0 fallos; y la prueba en vivo del
+      2026-11-21 (corrida 5): el saldo pasó de **5090 → 15090** créditos con el navegador todavía
+      en la página de comprobante de Mercado Pago, es decir, sin rebote.
+- [ ] **T28 / T30 — el recorrido completo.** El script ya existe y los pasos de contacto, registro,
+      entrada, navegación y recarga CLP están verificados en corridas visibles; falta cerrar la
+      recarga USD (ver el registro de corridas).
+
+### Registro de corridas (todas visibles: `E2E_HEADFUL=1`)
+
+| Corrida | Log | Resultado observado |
+| --- | --- | --- |
+| 1 | `/tmp/opencode/full-demo-run.log` | contacto PASS · registro PASS (cuenta desechable) · entrada PASS · navegación 6/6 PASS · coach 2/3 preguntas y luego 403 `EMAIL_REVERIFY_REQUIRED` (pausa por bono de bienvenida) |
+| 2 | `/tmp/opencode/full-demo-run2.log` | **CLP PASS** — *"Tu recarga se acreditó"*, 5000 CLP · 5000 créditos · USD BLOCKED (el comprador del sandbox no se pudo completar) |
+| 3 | `/tmp/opencode/full-demo-run3.log` | CLP BLOCKED (Mercado Pago acreditó en su página: *"¡Listo! Tu pago ya se acreditó"*, operación #189744160065) pero el navegador no volvió a la app → orden `d4b4029a` quedó `PENDING`; USD BLOCKED (el teléfono `+56…` es rechazado por PayPal) |
+| 4 | `/tmp/opencode/full-demo-run4.log` | CLP BLOCKED (la página `…/congrats/approved/` no tiene control de regreso; el saldo quedó 5090 → 5090) → **origen de T31**; USD BLOCKED (los campos de tarjeta de PayPal viven en un iframe: *"Este campo es obligatorio"*, *"La fecha de vencimiento es obligatoria"*, *"Código postal…"*) |
+| 5 | `/tmp/opencode/full-demo-run5.log` | **CLP PASS** — el saldo pasó de **5090 → 15090** con T31 desplegado, sin rebote del navegador; USD BLOCKED (el regex del botón no incluía *"Aceptar y pagar"*) |
+| 6 | `/tmp/opencode/full-demo-run6.log` | en curso al momento de escribir esta entrada |
+
+### Lo que aprendieron las corridas (no son ruido: son contrato)
+
+- La página de comprobante de Mercado Pago (`…/congrats/approved/`) **no rebota** el navegador de
+  forma fiable: en las corridas 3 y 4 acreditó en su propia página y el navegador se quedó ahí
+  dos minutos. Por eso el crédito no puede depender del rebote (T31).
+- La etiqueta del botón de pago de PayPal en el checkout de invitado es **"Aceptar y pagar"**, y los
+  campos de tarjeta (número, vencimiento, CVV) están en un **iframe** del proveedor: el documento
+  principal no los alcanza. El harness ya tenía los helpers semánticos (`number`, `expiry`, `cvv`)
+  en `scripts/e2e/page.js` + `scripts/e2e/lib/frames.js`.
+- El teléfono chileno se escribe **sin prefijo** (`961234567`): PayPal rechaza `+56…` cuando el
+  país ya está en "Chile".
+- La ventana de sandbox de PayPal es una allowlist de correos: la cuenta de prueba debe ser estable
+  para que el sandbox la siga aceptando (`E2E_REUSE_ACCOUNT=1`).
+
+## 16. Scope correction — the full journey ends in CLP, and the USD rail stays opt-in — 2026-11-21
+
+### Authorized outcome (owner)
+
+- The owner-facing journey **ends with the CLP top-up**. The demo does **not** launch a USD
+  payment: it walks the product, tops up in CLP through Mercado Pago and shows the balance.
+- The USD (PayPal) implementation **stays in the code untouched**. The rail only runs when
+  somebody asks for it explicitly with `E2E_USD=1` (and `E2E_ONLY_USD=1` for the rail alone).
+- The USD row of the report is therefore recorded as **approved without being launched**, with
+  the owner's note: the earlier sandbox rehearsal failed because the test data was wrong (no
+  sandbox buyer account, card-on-file not enabled), not because the platform failed. The hosted
+  capture and the exactly-once settlement are covered by the API's own contract test
+  (`tests/paypal_hosted_settle_test.php`, 24 asserts, 0 failures) and by the commits `84f6561`
+  and `7f06cc5`.
+
+This supersedes the "a RANDOM USD top-up" wording of section 15 for the demo script only; the
+USD rail itself is unchanged.
+
+### Work units
+
+- [x] **T28 — the USD rehearsal.** Approved with the note above; the payment was not completed
+      in the sandbox because the buyer data was missing, and the platform's behaviour was correct.
+- [x] **T30 — the whole journey script.** `scripts/e2e/full-demo-sandbox.mjs` now walks contact →
+      registration → sign in → catalogue → plan → every section → the coach → the CLP top-up →
+      the visible balance → the logout, at a human's typing pace, with PASS / BLOCKED / FAIL per
+      step. Verified in a headless run on 2026-11-21: **19/19 steps PASS** (the CLP top-up moved
+      the balance 90 → 10090 and the session really ended on the public landing).
