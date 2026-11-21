@@ -22,6 +22,13 @@ const DEFAULT_CHROME = process.env.E2E_CHROME || '/usr/bin/google-chrome'
 // E2E_HEADFUL=1 the browser opens a real window on the desktop, so a human
 // sees the journeys happen instead of only reading the report afterwards.
 const HEADFUL = process.env.E2E_HEADFUL === '1'
+// A phone-sized window for the mobile take: the demo emulates the device and
+// the recording shows the phone, not a narrow column inside a desktop page.
+const MOBILE = process.env.E2E_MOBILE === '1'
+const MOBILE_WINDOW = '390,720'
+// The window has to fit the screen it is recorded on: a window taller than the
+// display shows a page the viewer cannot see the bottom of.
+const WINDOW_SIZE = process.env.E2E_WINDOW_SIZE || (MOBILE ? MOBILE_WINDOW : '1280,900')
 
 // Generic scratch space: the session environment pre-creates /tmp/opencode and
 // allows external writes there, so the browser profile lives there instead of
@@ -36,12 +43,21 @@ export const CHROME_ARGS = [
   '--no-sandbox',
   '--disable-gpu',
   '--disable-dev-shm-usage',
-  '--window-size=1280,900',
+  `--window-size=${WINDOW_SIZE}`,
   // Hosted checkouts look at navigator.webdriver and leave a spinner forever
   // when they see it. The journey still drives a real browser through real
   // events; this only removes the automation tell.
   '--disable-blink-features=AutomationControlled',
-  ...(HEADFUL ? ['--start-maximized'] : []),
+  // A fresh profile opens Chrome's first-run pages (the browser picker, the
+  // default browser prompt): they land on screen where the take should be.
+  '--no-default-browser-check',
+  '--no-first-run',
+  '--disable-search-engine-choice-screen',
+  // Chrome's own update bubble lands on top of the page when the install
+  // cannot update itself: it has no place in a take.
+  '--disable-component-update',
+  '--disable-background-networking',
+  ...(HEADFUL && !MOBILE ? ['--start-maximized'] : []),
 ]
 
 /** A free TCP port on the loopback interface. */
@@ -85,7 +101,7 @@ async function waitForVersion(port, timeoutMs, stderr) {
  */
 export async function launchChrome(opts = {}) {
   const binary = opts.binary || DEFAULT_CHROME
-  const port = opts.port || (await freePort())
+  const port = opts.port || Number(process.env.E2E_CDP_PORT || 0) || (await freePort())
   const userDataDir = opts.userDataDir || (await mkdtemp(join(TMP_ROOT, 'mg88-e2e-chrome-')))
   const args = [
     ...CHROME_ARGS,
@@ -147,11 +163,15 @@ export async function launchChrome(opts = {}) {
  * word removed is applied to the session, so the journey sees the same page a
  * person's browser would see.
  */
-export async function applyRealUserAgent(connection, sessionId, version) {
+export async function applyRealUserAgent(connection, sessionId, version, { mobile = false } = {}) {
   const announced = String(version?.['User-Agent'] || '')
-  if (!announced.includes('HeadlessChrome')) return announced
-  const real = announced.replace('HeadlessChrome', 'Chrome')
-  await connection.send('Emulation.setUserAgentOverride', { userAgent: real }, sessionId)
+  const chromeVersion = (announced.match(/Chrome\/([\d.]+)/) || [])[1] || '140.0.0.0'
+  const real = mobile
+    ? `Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeVersion} Mobile Safari/537.36`
+    : announced.replace('HeadlessChrome', 'Chrome')
+  if (real !== announced) {
+    await connection.send('Emulation.setUserAgentOverride', { userAgent: real }, sessionId)
+  }
   return real
 }
 

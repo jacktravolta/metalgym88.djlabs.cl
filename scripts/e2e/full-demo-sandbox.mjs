@@ -47,8 +47,15 @@ const SCREENSHOT_DIR = join(OUT_DIR, 'screenshots')
 // window is an allowlist of EMAILS, so a replay must use the SAME account.
 const ACCOUNT_FILE = '/tmp/opencode/paypal-usd-account.json'
 
-const PACE = Number(process.env.E2E_PACE_MS || 2500)
-const COACH_SECONDS = Number(process.env.E2E_COACH_SECONDS || 180)
+// The short cut: the same journey, trimmed for a video that is watched.
+// E2E_SHORT=1 leaves the hosted top-up (minutes of waiting) out of the take.
+const SHORT = process.env.E2E_SHORT === '1'
+const PACE = Number(process.env.E2E_PACE_MS || (SHORT ? 900 : 2500))
+// The mobile take: the very same journey on a phone-sized, touch-enabled
+// device, so the recording shows what a person on a phone actually sees.
+const MOBILE = process.env.E2E_MOBILE === '1'
+const MOBILE_VIEWPORT = { width: 390, height: 620, deviceScaleFactor: 2, mobile: true }
+const COACH_SECONDS = Number(process.env.E2E_COACH_SECONDS || (SHORT ? 45 : 180))
 const REUSE_ACCOUNT = process.env.E2E_REUSE_ACCOUNT === '1'
 const ONLY_TOPUPS = process.env.E2E_ONLY_TOPUPS === '1'
 const ONLY_USD = process.env.E2E_ONLY_USD === '1'
@@ -1664,7 +1671,7 @@ async function browseExercisesStep(page) {
 
   // Move through the list instead of jumping straight to its end. The pauses
   // make the browsing visible and give the list time to settle after each move.
-  for (const index of [8, 18, 28]) {
+  for (const index of (SHORT ? [8] : [8, 18, 28])) {
     const scrolled = await scrollLibraryToRow(page, index)
     if (!scrolled) throw new Error('the catalogue list did not contain a real exercise row')
     await pause(1000)
@@ -2408,8 +2415,15 @@ async function main() {
     const { sessionId } = await connection.send('Target.attachToTarget', { targetId, flatten: true })
     const page = new Page(connection, sessionId, { artifactDir: OUT_DIR, screenshotDir: SCREENSHOT_DIR })
     await page.enable()
+    // The recording shows the window: the tab the journey drives has to be
+    // the one on screen (Chrome may have opened a first-run tab of its own).
+    try { await page.send('Page.bringToFront') } catch { /* the window is there anyway */ }
     // The hosted checkout must not see a headless browser.
-    await applyRealUserAgent(connection, sessionId, chrome.version)
+    await applyRealUserAgent(connection, sessionId, chrome.version, { mobile: MOBILE })
+    if (MOBILE) {
+      await page.send('Emulation.setDeviceMetricsOverride', { ...MOBILE_VIEWPORT })
+      await page.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 })
+    }
     await page.send('Network.setBypassServiceWorker', { bypass: true })
 
     await connection.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true })
@@ -2590,7 +2604,9 @@ async function main() {
     // A random CLP top-up
     await step('8/11 — topping up in CLP through the Mercado Pago sandbox')
     let clpEvidence = []
-    if (ONLY_USD) {
+    if (SHORT) {
+      record('CLP top-up', 'BLOCKED', 'skipped: this is the short cut (E2E_SHORT=1); the hosted top-up belongs to the long cut')
+    } else if (ONLY_USD) {
       record('CLP top-up', 'BLOCKED', 'skipped: this run only exercises the USD rail (E2E_ONLY_USD=1)')
     } else try {
       await openWalletSheet(page)
@@ -2831,11 +2847,21 @@ async function main() {
     for (const s of report.steps) console.log(`${s.status.padEnd(7)} ${s.name} — ${s.reason}`)
     console.log(`\nEvidencia: ${join(OUT_DIR, 'summary.json')}`)
 
-    await step('leaving the visible browser open for 45 seconds')
-    await pause(45000)
+    const openSeconds = SHORT ? 15 : 45
+    await step(`leaving the visible browser open for ${openSeconds} seconds`)
+    await pause(openSeconds * 1000)
   } finally {
     if (connection) connection.close()
-    await chrome.close()
+    // The owner watches the visible browser: a headful run leaves it open.
+    const keepBrowser = process.env.E2E_HEADFUL === '1' && process.env.E2E_CLOSE_BROWSER !== '1'
+    if (keepBrowser) {
+      try { chrome.proc.unref() } catch { /* already gone */ }
+      try { chrome.proc.stdout && chrome.proc.stdout.destroy() } catch { /* nothing to release */ }
+      try { chrome.proc.stderr && chrome.proc.stderr.destroy() } catch { /* nothing to release */ }
+      console.log(`the browser stays open (profile ${chrome.userDataDir}); E2E_CLOSE_BROWSER=1 closes it`)
+    } else {
+      await chrome.close()
+    }
   }
 }
 

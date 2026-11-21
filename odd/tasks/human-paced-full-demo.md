@@ -89,9 +89,53 @@ notice that a step only works because the script bypassed the UI.
 - [x] **T5 — Narrate and pace the whole run.** Every step announces what it is
       about to do before doing it, and the steps are spaced so the owner can
       follow them in the visible window.
-- [ ] **T6 — Live run and evidence.** Run the demo headful, keep the real
+- [x] **T6 — Live run and evidence.** Run the demo headful, keep the real
       report, close the tasks with the observed outcome and the commit
       identity.
+- [x] **T7 — The recorded takes.** Record the journey as video: the phone
+      take (the browser starts as a phone, 390x620) and the desktop take
+      (1366x708), both cut to a length a person watches, with the machine's
+      sound. `scripts/e2e/record-demo.mjs` writes
+      `~/Documents/demo-metalgym-{movil,escritorio}.mp4`.
+- [x] **T8 — The short cut.** The same journey without the hosted top-up
+      (`E2E_SHORT=1`): the top-up is minutes of waiting and belongs to the
+      long cut. The long cut is still one flag away (`E2E_SHORT=0`).
+
+## Findings (the recorded takes)
+
+- **The crop never worked, and the reason was the timeout.** The recorder
+  asks `wmctrl` for the window and cuts the screen capture to it. Three
+  defects sat on top of each other: `wmctrl -lpx` carries no geometry (the
+  `-G` flag is what adds it), the mobile window is not the one of the run
+  when an older browser is still open (the window is now found by the
+  profile the run just created), and the crop command itself was killed at
+  the 15 s timeout of the helper — the encoder runs about nine times faster
+  than real time, so the file ended up with a quarter of the recording and a
+  fifth of the video.
+- **A fresh Chrome profile opens its own pages.** The browser picker, the
+  default browser prompt and the update bubble all land where the take
+  should be. The flags that keep them away are in `CHROME_ARGS`, and the
+  journey brings its own tab to the front so the window shows the product
+  and not Chrome's first-run screen.
+- **The phone page does not fit the screen with the browser's own toolbar on
+  top.** The emulated viewport is 390x620 so the whole page fits under the
+  92 px the Chrome toolbar takes on this machine, and the crop starts where
+  the page starts (`E2E_CHROME_UI_PX` overrides the measurement).
+- **The coach answers with the exercise cards.** The take shows the real
+  conversation: the question, the answer and the exercises the catalog
+  resolved, with their images. The wallet fix (the heart that names the
+  request decides which wallet pays) is what lets the coach answer at all.
+
+## Verification evidence (the recorded takes)
+
+- `node --check` on `scripts/e2e/full-demo-sandbox.mjs`,
+  `scripts/e2e/cdp.js` and `scripts/e2e/record-demo.mjs` → exit 0.
+- Phone take: `~/Documents/demo-metalgym-movil.mp4` → 256 s, 390x620,
+  h264 + aac, 2.9 MB. Desktop take: `~/Documents/demo-metalgym-escritorio.mp4`
+  → 314 s, 1366x708, h264 + aac, 5.0 MB. Both cropped to the browser window
+  of their own run, with the full length of the recording.
+- The journey inside the takes: 19 steps, every one PASS except the CLP
+  top-up, which is the step the short cut leaves out on purpose.
 
 ## Authorized scope
 
