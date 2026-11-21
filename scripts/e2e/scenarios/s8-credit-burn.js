@@ -61,7 +61,7 @@ const RENDER_TIMEOUT_MS = 30000
 // phrasing, so the model is not answering the same prompt with a template.
 // The first one carries the person's name (the app would otherwise prepend
 // "My name is …"), which is also what a person would type.
-const CORPUS = [
+export const CORPUS = [
   'Hola. Quiero empezar a entrenar en el gimnasio y no sé por dónde partir. ¿Me ayudas a ordenar las primeras semanas?',
   'Tengo 34 años y llevo dos años sin entrenar. ¿Cómo debería repartir los días entre fuerza y cardio?',
   '¿Cuántas series y repeticiones conviene hacer para hipertrofia si recién empiezo?',

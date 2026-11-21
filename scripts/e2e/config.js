@@ -4,6 +4,9 @@ export const BASE_URL = (process.env.E2E_BASE_URL || 'https://metaigym88.djlabs.
 export const API_HOST = process.env.E2E_API_HOST || 'api.djlabs.cl'
 export const HEART = 'metalgym88'
 
+// The human identity used by the owner-facing journey.
+export const HUMAN_NAME = 'Camila Rojas'
+
 // The visible strings the suite looks for. They come from the product's own
 // Spanish locale, so a wording change is a real signal, not a flake.
 export const TEXT = {

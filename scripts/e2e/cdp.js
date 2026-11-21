@@ -37,6 +37,10 @@ export const CHROME_ARGS = [
   '--disable-gpu',
   '--disable-dev-shm-usage',
   '--window-size=1280,900',
+  // Hosted checkouts look at navigator.webdriver and leave a spinner forever
+  // when they see it. The journey still drives a real browser through real
+  // events; this only removes the automation tell.
+  '--disable-blink-features=AutomationControlled',
   ...(HEADFUL ? ['--start-maximized'] : []),
 ]
 
@@ -134,6 +138,21 @@ export async function launchChrome(opts = {}) {
       }
     },
   }
+}
+
+/**
+ * Headless Chrome announces itself as "HeadlessChrome". Hosted checkouts read
+ * that as a crawler: they answer with a redirect to their anti-bot page and
+ * never render the payment form. The browser's own user agent with that one
+ * word removed is applied to the session, so the journey sees the same page a
+ * person's browser would see.
+ */
+export async function applyRealUserAgent(connection, sessionId, version) {
+  const announced = String(version?.['User-Agent'] || '')
+  if (!announced.includes('HeadlessChrome')) return announced
+  const real = announced.replace('HeadlessChrome', 'Chrome')
+  await connection.send('Emulation.setUserAgentOverride', { userAgent: real }, sessionId)
+  return real
 }
 
 /** JSON-RPC style connection to the browser's DevTools websocket. */

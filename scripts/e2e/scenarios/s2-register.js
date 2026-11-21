@@ -4,7 +4,7 @@
 // (POST /auth/magic-link) with the Terms accepted. The proof is the request
 // itself and the "check your email" state in the UI.
 import { fail } from '../runner.js'
-import { API_HOST, BASE_URL, HEART, TEXT } from '../config.js'
+import { API_HOST, BASE_URL, HEART, HUMAN_NAME, TEXT } from '../config.js'
 import { platformResponse } from './helpers.js'
 
 export default {
@@ -17,7 +17,7 @@ export default {
     await page.goto(`${BASE_URL}/`)
     await page.expectText(TEXT.landingRegisterHeading, 20000)
 
-    await page.fill(TEXT.registerName, 'Harness E2E', { scope })
+    await page.fill(TEXT.registerName, HUMAN_NAME, { scope })
     await page.fill(TEXT.contactEmail, context.email, { scope })
     const terms = await page.checkByText(TEXT.terms, { scope })
     if (!terms.checked) throw fail('the Terms checkbox did not get ticked')
