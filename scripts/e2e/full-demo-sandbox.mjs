@@ -2624,15 +2624,18 @@ async function main() {
       evidence.push({ label: 'final url', value: finalUrl })
       evidence.push({ label: 'outcome', value: approved ? APPROVED_TITLE : 'the wallet did not show the approved sheet' })
       await page.screenshot('full-09-topup-clp')
+      // The sheet is the app's way of saying it; the balance is the truth.
+      let credited = false
+      let announced = approved
+      let balanceAfter = null
       if (!approved) {
-        // The sheet is the app's way of saying it; the balance is the truth.
         // The app reads the stored top-up record on boot, and the platform
         // settles the order server-to-server while it answers that read.
         await openApp(page, '/home')
-        const announced = await page.waitForText(APPROVED_TITLE, 25000).catch(() => null)
+        announced = await page.waitForText(APPROVED_TITLE, 25000).catch(() => null)
         await pause(3000)
-        const balanceAfter = await readBalance(page)
-        const credited = balanceBefore != null && balanceAfter != null && balanceAfter > balanceBefore
+        balanceAfter = await readBalance(page)
+        credited = balanceBefore != null && balanceAfter != null && balanceAfter > balanceBefore
         evidence.push({ label: 'balance before / after', value: `${balanceBefore} / ${balanceAfter}` })
         evidence.push({ label: 'the app announced it', value: announced ? APPROVED_TITLE : 'no sheet after the return to the app' })
         record(
@@ -2647,7 +2650,18 @@ async function main() {
         await page.expectText(APPROVED_BODY, 15000).catch(() => null)
         record('CLP top-up', 'PASS', `${APPROVED_TITLE} — ${choice.label}`, evidence)
       }
-      report.topups.clp = { option: choice.label, approved: !!approved, evidence }
+      // The top-up is approved when the credits landed, even if the browser
+      // never saw the sheet: the platform settles the order server-to-side.
+      report.topups.clp = {
+        option: choice.label,
+        credited,
+        approved: !!(approved || credited),
+        announced: !!announced,
+        reason: credited
+          ? `the credits landed in the wallet (${balanceBefore} → ${balanceAfter})`
+          : 'the payment did not reach the approved state',
+        evidence,
+      }
     } catch (e) {
       const screenshot = await page.screenshot('full-09-topup-clp-failure').catch(() => null)
       clpEvidence.push({ label: 'error', value: e.message || String(e) })
