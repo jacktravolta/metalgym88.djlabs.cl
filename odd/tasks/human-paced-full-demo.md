@@ -236,6 +236,13 @@ remain the owner's decisions.
   `node --check scripts/e2e/cdp.js` → exit 0;
   `npx vitest run scripts/e2e/redact.test.js scripts/e2e/lib/frames.test.js` →
   2 files, **9 tests passed**.
+- 2026-11-21 — Work units committed on `feat/mercadopago-live-purchase`:
+  `0583340` — *test(e2e): add the human-paced full-product demo over CDP*
+  (`scripts/e2e/full-demo-sandbox.mjs`, `scripts/e2e/cdp.js`,
+  `scripts/e2e/config.js`, `scripts/e2e/scenarios/s2-register.js`,
+  `scripts/e2e/scenarios/s8-credit-burn.js`, this document); and `56178d7` —
+  *docs(payments): record the USD rehearsal approval and the CLP-only journey*
+  (`odd/tasks/mercadopago-sandbox-rail.md`, the payment rail's own ledger).
 - 2026-11-21 — Engram mirror **pending**: `mem_save` failed in this session
   with a session-registration error, so this file is the copy of record until
   the mirror can be written.
