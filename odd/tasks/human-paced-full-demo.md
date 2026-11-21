@@ -243,6 +243,13 @@ remain the owner's decisions.
   `scripts/e2e/scenarios/s8-credit-burn.js`, this document); and `56178d7` —
   *docs(payments): record the USD rehearsal approval and the CLP-only journey*
   (`odd/tasks/mercadopago-sandbox-rail.md`, the payment rail's own ledger).
+- 2026-11-21 — The report told a half-truth: the CLP step was PASS because the
+  credits landed (the platform settles the order server-to-side, so the browser
+  never sees the approved sheet), but `topups.clp.approved` was still `false`
+  because it only looked at the sheet. Fixed and verified with a real run
+  (`E2E_ONLY_TOPUPS=1`, 2026-11-21): `topups.clp` now reports
+  `credited: true, approved: true, announced: false` and the reason *"the credits
+  landed in the wallet (100 → 10100)"*. Commit `d187742`.
 - 2026-11-21 — Engram mirror **pending**: `mem_save` failed in this session
   with a session-registration error, so this file is the copy of record until
   the mirror can be written.
