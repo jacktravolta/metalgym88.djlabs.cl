@@ -47,9 +47,16 @@ function TopUpStatusSheet({ result, close }) {
       : result.kind === 'pending_review' && result.status !== 'pending_challenge'
         ? [t('Your recharge is being reviewed'), t('The payment is being checked. If everything matches, the credits are added to your balance — no action needed from you.')]
         : [t(outcome.titleKey), t(outcome.messageKey)]
+  // Only an approved recharge earns the check mark. A pending or cancelled
+  // checkout must never read as "money already landed".
+  const iconName = kind === 'approved'
+    ? 'checkCircle'
+    : kind === 'rejected' || kind === 'canceled'
+      ? 'wallet'
+      : 'clock'
   return <div style={{ textAlign: 'center', padding: '6px 0' }}>
     <div style={{ fontSize: 40, display: 'flex', justifyContent: 'center', color: 'var(--acc)' }}>
-      <Icon name={kind === 'rejected' || kind === 'canceled' ? 'wallet' : 'checkCircle'} />
+      <Icon name={iconName} />
     </div>
     <h3 style={{ margin: '8px 0 4px' }}>{copy[0]}</h3>
     <div className="muted small" style={{ marginBottom: 16, lineHeight: 1.5 }}>{copy[1]}</div>
