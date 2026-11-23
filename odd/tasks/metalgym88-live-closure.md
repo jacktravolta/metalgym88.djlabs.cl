@@ -111,6 +111,16 @@ se aplicó después.
 | 8 | Recarga sin pagar | **A medias** | Packs 1000/5000/10.000 CLP visibles, Neto 840 + IVA 160 = 1000 CLP, «Pagar en CLP con Mercado Pago», USD deshabilitado («requiere credenciales de PayPal en modo live»). La orden se creó en vivo: `POST /payments/orders/checkout` con Idempotency-Key → **HTTP 202 (PENDING)**. Sin verificar: el `order_id` del body y la navegación a la pasarela. |
 | 9 | Cierre | **Sin verificar** | Nunca llegó a ejecutarse limpio. |
 
+**Cómo leer el informe de la última corrida (importante):** el reporte de la
+corrida final dice **"0 PASS · 1 FAIL · 0 BLOCKED" a nivel de escenario**, con el
+motivo `kind.toLowerCase is not a function`: el crash ocurrió justo al construir
+el detalle del fallo del paso 8, así que el informe **no** llegó a publicar el
+lista de pasos. Los veredictos PASS de los pasos 1–7 salen de la evidencia de
+las corridas anteriores (capturas `s10-01`…`s10-07`) y de lo observado en vivo,
+no de ese informe. `eee4861` es justamente el commit que hace que el runner
+publique `outcome.detail` (la lista de pasos) — **falta una corrida en vivo
+para que ese informe exista**.
+
 Verificación del código: `npm test` → **41 archivos / 577 tests passed**
 (re-verificado tras `eee4861`); `npm run build` → verde (solo el warning
 preexistente de chunks > 1500 kB).
@@ -133,6 +143,11 @@ el «no disponible» del run 1 era la quote aún cargando.
 Capturas: `artifacts/e2e/screenshots/s10-01-landing.png` … `s10-08-topup-options.png`
 (+ `s10-stepN-fail/blocked.png` de las iteraciones). Informes:
 `artifacts/e2e/report.md` y `artifacts/e2e/report.json`.
+**La evidencia no está versionada**: `artifacts/` está en el `.gitignore`, así
+que las capturas y los informes viven solo en el worktree
+`/home/test/test/metalgym88.djlabs.cl-worktrees/full-journey/artifacts/e2e/`.
+Si se quieren conservar, hay que copiarlas fuera (o levantarse el ignore) antes
+de borrar ese worktree.
 
 **Siguiente paso único**: `E2E_HEADFUL=1 node scripts/e2e/run.js --only=S10`
 con `eee4861` para cerrar los pasos 8 y 9. Si el body del 202 no expone un
