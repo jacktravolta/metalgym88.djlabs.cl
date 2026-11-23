@@ -29,8 +29,9 @@ import s6Navigation from './scenarios/s6-navigation.js'
 import s7Legal from './scenarios/s7-legal-pages.js'
 import s8CreditBurn from './scenarios/s8-credit-burn.js'
 import s9PaypalCardSandbox from './scenarios/s9-paypal-card-sandbox.js'
+import s10FullJourney from './scenarios/s10-full-journey.js'
 
-const ALL = [s1Contact, s2Register, s2bVerify, s3Login, s4Recovery, s5Topup, s6Navigation, s7Legal, s8CreditBurn, s9PaypalCardSandbox]
+const ALL = [s1Contact, s2Register, s2bVerify, s3Login, s4Recovery, s5Topup, s6Navigation, s7Legal, s8CreditBurn, s9PaypalCardSandbox, s10FullJourney]
 
 const OUT_DIR = resolve(process.env.E2E_OUT || join(process.cwd(), 'artifacts', 'e2e'))
 const SCREENSHOT_DIR = join(OUT_DIR, 'screenshots')
