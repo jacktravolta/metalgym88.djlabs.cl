@@ -87,6 +87,58 @@ El ledger de la suite sigue en `odd/tasks/cdp-e2e-and-legal-pages.md`; el
 recorrido a velocidad humana ya cerrado en `odd/tasks/human-paced-full-demo.md`
 (19/19 pasos PASS el 2026-11-21).
 
+## El recorrido S10: qué se verificó DE VERDAD
+
+Commits del recorrido en `feat/full-human-journey`:
+`dc67939` (el escenario) y `eee4861` (los arreglos del harness que salieron de
+las corridas). El runner ahora publica `outcome.detail` (la lista de pasos por
+escenario) en `report.md`/`report.json`: antes esa información se descartaba.
+
+Corrida real headed (`E2E_HEADFUL=1 node scripts/e2e/run.js --only=S10`) contra
+`https://metaigym88.djlabs.cl/`, cinco iteraciones. **Los fallos eran del
+harness, no del producto**: cada iteración encontró algo distinto y el arreglo
+se aplicó después.
+
+| # | Paso | Veredicto | Evidencia observada en vivo |
+|---|---|---|---|
+| 1 | Landing | **PASS** | Hero «Tu rutina, tu peso y tu coach»; `#como-funciona · #que-incluye · #creditos · #acceso · #login` presentes; CTA «Entrar al panel» con `href=#login` sin sesión y el clic trae el formulario inline. |
+| 2 | Entrar por `#login` | **PASS** | «Envíame un enlace…» → `POST /auth/magic-link` 200 → correo real canjeado por `/auth/verify?token=…` → `GET /auth/me` 200 → home «Hola …» con «100 créditos disponibles». |
+| 3 | Buscar ejercicio | **PASS** | «abdominal» → 41 resultados; ficha de «Abdominal Bicicleta Con Banda Elástica» (1 media, 5 tags, «Añadir a mi plan»). |
+| 4 | Armar plan | **PASS** | Ejercicio añadido a «Nueva rutina» (toast confirmado), renombrada a «Rutina de prueba S10», listada en el plan. |
+| 5 | Coach IA | **PASS** | Grant previo `ADMIN_ADJUSTMENT +60` (100→160) vía `CreditService`; `POST /opengym/ai` 200, 1070 caracteres, en español, menciona el ejercicio; **4 tarjetas del catálogo** bajo la respuesta y clic real → `/#/library?q=Abdominal…` con el ejercicio listado. |
+| 6 | Ajustes | **PASS** | Secciones: Cuenta · Tu perfil · Avisos de tu cuenta · General · Durante el entrenamiento · Apariencia · Datos · Consejo. |
+| 7 | Billetera | **PASS** | Saldo 155; ledger con `ADMIN_ADJUSTMENT` y `USAGE_DEBIT`. |
+| 8 | Recarga sin pagar | **A medias** | Packs 1000/5000/10.000 CLP visibles, Neto 840 + IVA 160 = 1000 CLP, «Pagar en CLP con Mercado Pago», USD deshabilitado («requiere credenciales de PayPal en modo live»). La orden se creó en vivo: `POST /payments/orders/checkout` con Idempotency-Key → **HTTP 202 (PENDING)**. Sin verificar: el `order_id` del body y la navegación a la pasarela. |
+| 9 | Cierre | **Sin verificar** | Nunca llegó a ejecutarse limpio. |
+
+Verificación del código: `npm test` → **41 archivos / 577 tests passed**
+(re-verificado tras `eee4861`); `npm run build` → verde (solo el warning
+preexistente de chunks > 1500 kB).
+
+**Lo que NO está verificado** (sin PASS inventado):
+
+- **No hay corrida completa en verde**: los arreglos del harness (aceptar el 202
+  del checkout, el constructor `ScenarioFailure`, la espera del editor de rutina)
+  están commiteados en `eee4861` pero **no se re-ejecutaron en vivo**.
+- No se corrió la suite completa headed S1–S10 (solo `--only=S10`).
+- **No se pagó** (ni se intentó): la pierna de pago queda como «necesita tarjeta
+  humana».
+- Dato observado, no defecto: el coach cobró **5 créditos** por la pregunta
+  (160→155), no los 8 del brief; lo que la plataforma sirve manda.
+
+**Defectos de producto confirmados: ninguno.** La sospecha inicial (raíl CLP
+muerta por `expectedProvider='mercadopago'` frente a Flow) queda **retirada**:
+el «no disponible» del run 1 era la quote aún cargando.
+
+Capturas: `artifacts/e2e/screenshots/s10-01-landing.png` … `s10-08-topup-options.png`
+(+ `s10-stepN-fail/blocked.png` de las iteraciones). Informes:
+`artifacts/e2e/report.md` y `artifacts/e2e/report.json`.
+
+**Siguiente paso único**: `E2E_HEADFUL=1 node scripts/e2e/run.js --only=S10`
+con `eee4861` para cerrar los pasos 8 y 9. Si el body del 202 no expone un
+`order_id` legible por CDP, basta con registrar el 202 + Idempotency-Key como
+evidencia del contrato y la navegación por `currentUrl()`.
+
 ## Hallazgo que cambió el plan: PR #5 era OBSOLETO
 
 Al intentar refrescar PR #5 sobre `origin/main` (10 días después) apareció el
