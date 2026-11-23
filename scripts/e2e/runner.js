@@ -72,6 +72,9 @@ export async function runScenarios({ scenarios, page, context, outDir, baseUrl }
       record.reason = (outcome && outcome.reason) || 'Every assertion held'
       record.evidence = (outcome && outcome.evidence) || []
       record.screenshots = (outcome && outcome.screenshots) || []
+      // A scenario that walks step by step (S10) hands back its per-step
+      // verdicts; the report carries them instead of dropping them.
+      record.detail = (outcome && outcome.detail) || null
     } catch (e) {
       if (e instanceof ScenarioFailure) {
         record.status = e.kind

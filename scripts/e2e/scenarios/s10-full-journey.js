@@ -380,7 +380,7 @@ export default {
         }
         const wanted = results.find(name => name.toLowerCase().includes(EXERCISE_PREFERENCE))
           || results.find(name => fold(name).includes(EXERCISE_QUERY))
-        if (!wanted) throw new ScenarioFailure(`the filtered list holds no "${EXERCISE_QUERY}" exercise`, { results: results.slice(0, 8) })
+        if (!wanted) throw new ScenarioFailure(`the filtered list holds no "${EXERCISE_QUERY}" exercise`, 'FAIL', { results: results.slice(0, 8) })
         chosen.exercise = wanted.trim()
         evidence.push({
           label: 'search',
@@ -405,7 +405,7 @@ export default {
           };
         `)
         if (!sheetInfo || sheetInfo.media < 1) {
-          throw new ScenarioFailure(`the sheet of "${chosen.exercise}" shows no image or animation`, { sheetInfo })
+          throw new ScenarioFailure(`the sheet of "${chosen.exercise}" shows no image or animation`, 'FAIL', { sheetInfo })
         }
         evidence.push({
           label: 'exercise sheet',
@@ -424,17 +424,33 @@ export default {
         const save = await page.waitForText(ADD_TO_ROUTINE, 15000)
         if (!save) throw new ScenarioFailure('the exercise configuration sheet never showed its save button')
         await page.clickText(ADD_TO_ROUTINE, { exact: true, timeoutMs: 10000 })
-        // The app lands on the routine editor with the new routine in it.
-        const inEditor = await page.waitForText(chosen.exercise, 15000)
-        if (!inEditor) throw new ScenarioFailure(`the routine editor did not list "${chosen.exercise}" after adding it`)
+        // The app lands on the routine editor with the new routine in it. The
+        // exercise sheet is STILL open on top, so its text would satisfy a
+        // plain text wait — the editor is only there when its NAME FIELD is.
+        const editor = await (async () => {
+          const deadline = Date.now() + 15000
+          while (Date.now() < deadline) {
+            const state = await page.evaluate(`
+              const input = document.querySelector('.hdr input.input') || document.querySelector('main input.input');
+              if (!input || !__visible(input)) return { ready: false };
+              return { ready: __norm(input.value) === __args.expect, value: __norm(input.value) };
+            `, { args: { expect: NEW_ROUTINE } }).catch(() => null)
+            if (state && state.ready) return state
+            await delay(200)
+          }
+          return null
+        })()
+        if (!editor) throw new ScenarioFailure('the routine editor never mounted its name field after adding the exercise')
         // Rename it the way a person does: type over the routine's name field.
         const renamed = await page.evaluate(`
           const input = document.querySelector('.hdr input.input') || document.querySelector('main input.input');
-          if (!input || !__visible(input)) return null;
+          if (!input) return { found: false };
           __setValue(input, __args.name);
-          return __norm(input.value);
+          return { found: true, after: __norm(input.value) };
         `, { args: { name: ROUTINE_NAME } })
-        if (renamed !== ROUTINE_NAME) throw new ScenarioFailure('the routine name field did not accept the new name')
+        if (!renamed || !renamed.found || renamed.after !== ROUTINE_NAME) {
+          throw new ScenarioFailure('the routine name field did not accept the new name', 'FAIL', { renameResult: renamed })
+        }
         chosen.routine = ROUTINE_NAME
         await openApp(page, '/plan')
         const planHeading = await page.waitForText(TEXT.plan, 20000)
@@ -471,8 +487,7 @@ export default {
           grantNote = grant.error
           const chip = await readChip(page)
           if (chip == null || chip < 8) {
-            const e = new ScenarioFailure(`the credit grant failed and the balance cannot cover the coach: ${grant.error}`)
-            e.kind = 'BLOCKED'
+            const e = new ScenarioFailure(`the credit grant failed and the balance cannot cover the coach: ${grant.error}`, 'BLOCKED')
             throw e
           }
           balanceBefore = chip
@@ -509,8 +524,7 @@ export default {
           const reverify = await completeReverification(page, context)
           evidence.push({ label: 're-verification pause', value: reverify.detail })
           if (!reverify.ok) {
-            const e = new ScenarioFailure(`the coach refused the question (HTTP 403) and the re-verification could not be completed: ${reverify.detail}`)
-            e.kind = 'BLOCKED'
+            const e = new ScenarioFailure(`the coach refused the question (HTTP 403) and the re-verification could not be completed: ${reverify.detail}`, 'BLOCKED')
             throw e
           }
           await openApp(page, '/home')
@@ -541,19 +555,19 @@ export default {
         const rendered = await waitForAnswerRendered(page, parsed.answer)
         const answerOnScreen = rendered || !!(await page.textContaining(COACH_QUESTION, { scope: COACH_SHEET }).catch(() => null))
         if (!parsed.answer) {
-          throw new ScenarioFailure('the coach answered 200 but carried no answer text', {
+          throw new ScenarioFailure('the coach answered 200 but carried no answer text', 'FAIL', {
             body: JSON.stringify(body || {}).slice(0, 400),
           })
         }
         if (!answerOnScreen && !rendered) {
-          throw new ScenarioFailure('the coach answer never finished rendering in the panel', {
+          throw new ScenarioFailure('the coach answer never finished rendering in the panel', 'FAIL', {
             answerStart: parsed.answer.slice(0, 120),
           })
         }
         const looksSpanish = /[áéíóúñ¿¡]/i.test(parsed.answer)
           || /\b(el|la|los|las|para|con|que|de|tu|músculo|ejercicio|respira|series|repeticiones|espalda|pierna)\b/i.test(parsed.answer)
         if (!looksSpanish) {
-          throw new ScenarioFailure('the coach answer does not read as Spanish', { answerStart: parsed.answer.slice(0, 200) })
+          throw new ScenarioFailure('the coach answer does not read as Spanish', 'FAIL', { answerStart: parsed.answer.slice(0, 200) })
         }
         const mentionsExercise = fold(parsed.answer).includes(fold(chosen.exercise).slice(0, 20))
         const shot = await page.screenshot('s10-05-coach-answer')
@@ -571,7 +585,7 @@ export default {
         if (!mentionsExercise) {
           // A real coach answers the question that was asked; not naming the
           // exercise is a defect worth reading about, not a broken walk.
-          throw new ScenarioFailure(`the coach answer never mentions the exercise "${chosen.exercise}"`, {
+          throw new ScenarioFailure(`the coach answer never mentions the exercise "${chosen.exercise}"`, 'FAIL', {
             answerStart: parsed.answer.slice(0, 200),
           })
         }
@@ -589,9 +603,9 @@ export default {
         if (!card || !card.present) {
           const e = new ScenarioFailure(
             'the coach answer carries no catalogue exercise card (the front resolves them from the catalogue and links them to the library)',
+            'BLOCKED',
             { cardsBlock: card ? card.cardsBlock : null }
           )
-          e.kind = 'BLOCKED'
           throw e
         }
         evidence.push({ label: 'catalogue cards', value: `${card.count} card(s) rendered under the answer` })
@@ -611,9 +625,9 @@ export default {
         const libraryShown = await page.waitForText(chosen.exercise, 15000)
         if (!libraryShown) {
           const e = new ScenarioFailure(
-            `clicking the card did not land on the library with the exercise listed (final URL: ${url})`
+            `clicking the card did not land on the library with the exercise listed (final URL: ${url})`,
+            'BLOCKED'
           )
-          e.kind = 'BLOCKED'
           throw e
         }
         evidence.push({
@@ -636,7 +650,7 @@ export default {
         const expected = ['Cuenta', 'General', 'Durante el entrenamiento', 'Apariencia', 'Datos']
         const missing = expected.filter(name => !titles.some(t => t.toLowerCase().includes(name.toLowerCase())))
         if (missing.length) {
-          throw new ScenarioFailure(`settings is missing section(s): ${missing.join(', ')}`, { sectionsSeen: titles })
+          throw new ScenarioFailure(`settings is missing section(s): ${missing.join(', ')}`, 'FAIL', { sectionsSeen: titles })
         }
         evidence.push({ label: 'settings sections', value: titles.join(' · ') })
         evidence.push({ label: 'profile row', value: 'the account section shows the signed-in profile (redacted)' })
@@ -667,23 +681,41 @@ export default {
         `, { args: { label: CREDITS_AVAILABLE } })
         wallet.balance = balanceText ? Number(String(balanceText).replace(/[^\d]/g, '')) : null
         if (wallet.balance == null) throw new ScenarioFailure('the wallet sheet shows no balance figure')
-        // The ledger the platform served for this account.
-        const movementRequest = page.requests
-          .filter(r => r.path === '/credits/movements' && r.status === 200)
-          .pop() || null
-        const movementsBody = movementRequest ? await page.responseJson(movementRequest.id) : null
-        const rows = movementsBody && typeof movementsBody === 'object'
-          ? (Array.isArray(movementsBody) ? movementsBody
-            : Array.isArray(movementsBody.data) ? movementsBody.data
-              : Array.isArray(movementsBody.movements) ? movementsBody.movements : [])
-          : []
+        // The ledger the platform served for this account. The call fires on
+        // the sheet's mount: wait until a GET actually settles. The CORS
+        // preflight (OPTIONS → 204 with no body) shares the path and must
+        // never be mistaken for the answer (the same trap S8 documents).
+        const settled = r => r.status != null || r.errorText != null
+        const deadlineMovements = Date.now() + 30000
+        let movementRequest = null
+        while (Date.now() < deadlineMovements) {
+          const candidates = page.requests.filter(r => r.method === 'GET' && r.path === '/credits/movements' && settled(r))
+          const withBody = candidates.filter(r => r.status === 200)
+          movementRequest = (withBody.length ? withBody : candidates).pop() || null
+          if (movementRequest) break
+          await delay(200)
+        }
+        if (!movementRequest) {
+          throw new ScenarioFailure('GET /credits/movements never answered within 30s, so the movements list stayed loading')
+        }
+        if (movementRequest.status !== 200) {
+          throw new ScenarioFailure(`GET /credits/movements answered ${movementRequest.status || movementRequest.errorText}`)
+        }
+        const movementsBody = await page.responseJson(movementRequest.id)
+        // The platform wraps the ledger: { success, data: { movements, limit,
+        // offset } }. Unwrap the envelope before looking for the rows.
+        const envelope = movementsBody && typeof movementsBody === 'object' ? movementsBody : {}
+        const inner = envelope.data && typeof envelope.data === 'object' ? envelope.data : envelope
+        const rows = Array.isArray(inner.movements) ? inner.movements
+          : Array.isArray(envelope.data) ? envelope.data
+            : Array.isArray(envelope) ? envelope : []
         const types = rows.map(r => r.type || r.operation || '').filter(Boolean)
         wallet.movements = rows.length
         const hasAdjustment = types.includes('ADMIN_ADJUSTMENT')
         const hasDebit = types.includes('USAGE_DEBIT')
         if (!rows.length) throw new ScenarioFailure('the wallet lists no movements, but this journey credited and spent credits')
-        if (!hasAdjustment) throw new ScenarioFailure('the test-side ADMIN_ADJUSTMENT is missing from the wallet movements', { typesSeen: types.slice(0, 10) })
-        if (!hasDebit) throw new ScenarioFailure('the coach USAGE_DEBIT is missing from the wallet movements', { typesSeen: types.slice(0, 10) })
+        if (!hasAdjustment) throw new ScenarioFailure('the test-side ADMIN_ADJUSTMENT is missing from the wallet movements', 'FAIL', { typesSeen: types.slice(0, 10) })
+        if (!hasDebit) throw new ScenarioFailure('the coach USAGE_DEBIT is missing from the wallet movements', 'FAIL', { typesSeen: types.slice(0, 10) })
         evidence.push({
           label: 'wallet',
           value: `balance ${wallet.balance} credits; ${rows.length} movement(s); types seen: ${[...new Set(types)].join(', ')}`,
@@ -698,25 +730,56 @@ export default {
         : step(8, 'Recharge — options, order, gateway hand-off (payment needs a human)', async () => {
         const addCredits = await page.waitForText(ADD_CREDITS, 20000)
         if (!addCredits) throw new ScenarioFailure('the wallet sheet never showed its recharge section')
+        // The quote owns the packs and the rails. It fires on the sheet's
+        // mount; give it the same bounded wait the movements get, and read
+        // the GET (never the 204 preflight that shares its path).
+        const settled = r => r.status != null || r.errorText != null
+        const deadlineQuote = Date.now() + 30000
+        let quoteRequest = null
+        while (Date.now() < deadlineQuote) {
+          const candidates = page.requests.filter(r => r.method === 'GET' && r.path === '/payments/quote' && settled(r))
+          const withBody = candidates.filter(r => r.status === 200)
+          quoteRequest = (withBody.length ? withBody : candidates).pop() || null
+          if (quoteRequest) break
+          await delay(200)
+        }
+        let quoteInfo = 'GET /payments/quote never answered within 30s'
+        if (quoteRequest && quoteRequest.status === 200) {
+          const quoteBody = await page.responseJson(quoteRequest.id)
+          const quote = (quoteBody && (quoteBody.data || quoteBody)) || {}
+          const clpRow = Array.isArray(quote.currencies)
+            ? quote.currencies.find(c => c && c.currency === 'CLP') : null
+          quoteInfo = `HTTP 200; CLP row: ${clpRow
+            ? `available=${clpRow.available}, providers=${JSON.stringify(clpRow.providers || null)}`
+            : 'absent'}`
+        } else if (quoteRequest) {
+          quoteInfo = `HTTP ${quoteRequest.status || quoteRequest.errorText}`
+        }
+        evidence.push({ label: 'quote (the rails the platform advertises)', value: quoteInfo })
         // The packs the platform publishes right now.
         const options = await page.evaluate(`
           const sheet = document.querySelector('.sheet');
-          if (!sheet) return { chips: [], currencyChips: [] };
+          if (!sheet) return { chips: [], currencyChips: [], note: null };
           const chips = Array.from(sheet.querySelectorAll('button'))
             .filter(b => __visible(b) && /\\d/.test(__text(b)) && /CLP|créditos/i.test(__text(b)))
             .map(b => __text(b).slice(0, 40));
           const currencyChips = Array.from(sheet.querySelectorAll('button'))
             .filter(b => __visible(b) && /^(CLP|USD)$/.test(__norm(b.textContent)))
             .map(b => __norm(b.textContent));
-          return { chips, currencyChips };
+          const note = Array.from(sheet.querySelectorAll('.dim.small'))
+            .map(el => __text(el)).find(t => /no está disponible|No hay opciones/i.test(t)) || null;
+          return { chips, currencyChips, note };
         `)
         if (!options.chips.length) {
-          const e = new ScenarioFailure('the wallet publishes no recharge options right now')
-          e.kind = 'BLOCKED'
-          throw e
+          throw new ScenarioFailure(
+            `the wallet publishes no recharge options right now${options.note ? ` — the sheet itself says: "${options.note}"` : ''} (quote: ${quoteInfo})`,
+            'BLOCKED'
+          )
         }
         evidence.push({ label: 'recharge options', value: options.chips.join(' | ') })
-        const limitsRequest = page.requests.filter(r => r.path === '/payments/limits' && r.status === 200).pop() || null
+        const limitsRequest = page.requests
+          .filter(r => r.method === 'GET' && r.path === '/payments/limits' && r.status === 200)
+          .pop() || null
         if (limitsRequest) {
           const limitsBody = await page.responseJson(limitsRequest.id)
           const limits = (limitsBody && (limitsBody.data || limitsBody)) || {}
@@ -756,14 +819,16 @@ export default {
           throw new ScenarioFailure(`${orderRequest.path} went out without an Idempotency-Key header`)
         }
         const orderResponse = await platformResponse(page, orderRequest, { label: 'the order creation' })
-        if (orderResponse.status !== 200) {
+        // The checkout endpoint answers 202 BY DESIGN (the order is created
+        // PENDING on the provider); any 2xx carries the order.
+        if (orderResponse.status == null || orderResponse.status < 200 || orderResponse.status >= 300) {
           throw new ScenarioFailure(`${orderRequest.path} answered HTTP ${orderResponse.status}`)
         }
         const orderBody = await page.responseJson(orderRequest.id)
         const order = (orderBody && (orderBody.data || orderBody)) || {}
         const orderId = order.order_id || order.orderId || order.id || null
         const redirectUrl = order.redirect_url || order.redirectUrl || null
-        if (!orderId) throw new ScenarioFailure('the order creation answered without an order id', { body: orderBody })
+        if (!orderId) throw new ScenarioFailure('the order creation answered without an order id', 'FAIL', { body: orderBody })
         evidence.push({
           label: 'order created',
           value: `POST ${orderRequest.path} → HTTP ${orderResponse.status}; id=${orderId}; Idempotency-Key: present`,
