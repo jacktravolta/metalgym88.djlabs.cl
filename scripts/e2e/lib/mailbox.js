@@ -90,7 +90,14 @@ export class Mailbox {
 
   /** The inbox, newest first. */
   async messages() {
-    const res = await fetchJson(`${API}/messages`, { headers: this.#headers() })
+    let res = await fetchJson(`${API}/messages`, { headers: this.#headers() })
+    if (res.status === 401) {
+      // mail.tm invalidates the previous token when a new one is issued for
+      // the same account: another process (or a diagnostic) can retire the
+      // token this run holds. A fresh one is the fix, not a failed step.
+      await this.authenticate()
+      res = await fetchJson(`${API}/messages`, { headers: this.#headers() })
+    }
     if (!res.ok) throw new Error(`mail.tm /messages answered ${res.status}: ${res.text.slice(0, 200)}`)
     const json = res.json || {}
     return json['hydra:member'] || json.member || []
@@ -98,7 +105,11 @@ export class Mailbox {
 
   /** One message with its body. */
   async read(id) {
-    const res = await fetchJson(`${API}/messages/${encodeURIComponent(id)}`, { headers: this.#headers() })
+    let res = await fetchJson(`${API}/messages/${encodeURIComponent(id)}`, { headers: this.#headers() })
+    if (res.status === 401) {
+      await this.authenticate()
+      res = await fetchJson(`${API}/messages/${encodeURIComponent(id)}`, { headers: this.#headers() })
+    }
     if (!res.ok) throw new Error(`mail.tm /messages/${id} answered ${res.status}: ${res.text.slice(0, 200)}`)
     return res.json || {}
   }
@@ -129,12 +140,17 @@ export class Mailbox {
   async latestWithSubject(subjectPattern, options = {}) {
     const { timeoutMs = 120000, pollMs = 3000, since = null } = options
     const deadline = Date.now() + timeoutMs
+    // mail.tm stamps a message with SECOND precision, while the moment the
+    // request went out carries milliseconds: a message that landed in the
+    // same second would look older than it is and be dropped from the window.
+    // The second that holds the request is part of the window.
+    const sinceAt = since ? Math.floor(Date.parse(since) / 1000) * 1000 : null
     let seen = []
     while (Date.now() < deadline) {
       const list = await this.messages()
       const matching = list
         .filter(message => subjectPattern.test(message.subject || ''))
-        .filter(message => !since || Date.parse(message.createdAt || '') >= Date.parse(since))
+        .filter(message => sinceAt == null || Date.parse(message.createdAt || '') >= sinceAt)
         .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
       seen = list.map(m => `${m.subject} (${m.createdAt})`)
       if (matching.length) {
