@@ -31,7 +31,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 
 import { ScenarioFailure } from '../runner.js'
 import { StepTimeout } from '../page.js'
-import { BASE_URL, HEART, TEXT } from '../config.js'
+import { BASE_URL, API_HOST, HEART, TEXT } from '../config.js'
 import { extractTokenUrls } from '../lib/mailbox.js'
 import { openApp, openLanding, platformResponse, redeemLatestLink, signOutThroughUi } from './helpers.js'
 
@@ -60,6 +60,7 @@ const SEND = 'Enviar'
 const THINKING = 'Pensando…'
 const COACH_QUESTION = '¿Cómo hago bien el abdominal bicicleta y qué músculos trabajo con él?'
 const CATALOGUE_CARDS = 'Ejercicios del catálogo'
+const RESEND_LINK = 'Reenviar el enlace'
 const ANSWER_TIMEOUT_MS = 60000 // the coach brain needs 8–20 s; the budget is generous but bounded
 const RENDER_TIMEOUT_MS = 30000
 
@@ -212,7 +213,9 @@ async function completeReverification(page, context) {
   const token = new URL(link).searchParams.get('token')
   if (!token) return { ok: false, detail: 'the re-verification URL carried no token' }
   const answer = await page.evaluate(`
-    const response = await fetch('/auth/reverify', {
+    // The PLATFORM owns this endpoint, not the front: a relative URL would
+    // land on the static landing and answer 405.
+    const response = await fetch('https://${API_HOST}/auth/reverify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: __args.token }),
@@ -224,6 +227,48 @@ async function completeReverification(page, context) {
     ok,
     detail: ok ? 'the account confirmed its email again through the mailed notice'
       : `POST /auth/reverify answered ${answer && answer.status != null ? answer.status : 'no answer'}`,
+  }
+}
+
+/**
+ * The panel's own "Resend the link" button (Spanish: "Reenviar el enlace").
+ *
+ * The welcome-bonus pause sends its notice ONCE: the platform marks the
+ * account pending the first time the threshold is crossed and never sends
+ * that notice again by itself. When the notice is lost, a person asks for a
+ * fresh one from the panel — and the walk does the same, because that is the
+ * only way back into the coach.
+ */
+async function askForFreshReverifyNotice(page) {
+  let clicked = await page.clickText(RESEND_LINK, { scope: COACH_SHEET, timeoutMs: 8000 }).catch(() => null)
+  if (!clicked) {
+    // The wording may have moved: any visible button in the panel that asks
+    // for the link again is the same act.
+    clicked = await page.evaluate(`
+      const sheet = document.querySelector('${COACH_SHEET}') || document;
+      const button = Array.from(sheet.querySelectorAll('button'))
+        .filter(b => __visible(b) && /reenviar|resend/i.test(__text(b)))
+        .pop();
+      if (!button) return false;
+      return __click(button);
+    `).catch(() => null)
+  }
+  const request = clicked
+    ? await page.waitForRequest(r => r.method === 'POST' && r.path === '/auth/reverify/resend', 15000).catch(() => null)
+    : null
+  if (!request) {
+    return {
+      ok: false,
+      detail: `the panel offered no button to ask for a fresh notice ("${RESEND_LINK}")`,
+    }
+  }
+  const response = await platformResponse(page, request, {
+    timeoutMs: 20000,
+    label: 'POST /auth/reverify/resend',
+  })
+  return {
+    ok: Boolean(response && response.status >= 200 && response.status < 300),
+    detail: `the panel asked for a fresh notice → POST /auth/reverify/resend → HTTP ${response.status}`,
   }
 }
 
@@ -521,6 +566,11 @@ export default {
         // does the walk — once. The panel then needs a fresh open: the 403
         // leaves it in its re-verification notice state.
         if (response.status === 403) {
+          // The notice that opened the gate was sent once, the first time the
+          // threshold was crossed; it may be long gone. A person asks the
+          // panel for a fresh one.
+          const fresh = await askForFreshReverifyNotice(page)
+          evidence.push({ label: 're-verification notice', value: fresh.detail })
           const reverify = await completeReverification(page, context)
           evidence.push({ label: 're-verification pause', value: reverify.detail })
           if (!reverify.ok) {
@@ -801,6 +851,12 @@ export default {
         if (!picked) throw new ScenarioFailure('the first recharge pack could not be selected')
         // The pay button. The order is created; the browser then leaves for
         // the gateway in the SAME window (the product's own design).
+        // The order's body must be kept BEFORE the click: the navigation to
+        // the gateway replaces the document and CDP releases the body with it.
+        if (typeof page.captureBodies === 'function') {
+          page.captureBodies(r => r.method === 'POST'
+            && (r.path === '/payments/orders/checkout' || r.path === '/payments/orders'))
+        }
         const beforePay = new Set(page.requests.map(r => r.id))
         let payClicked = null
         for (const label of [PAY_CLP, PAY_ANY]) {
@@ -824,14 +880,27 @@ export default {
         if (orderResponse.status == null || orderResponse.status < 200 || orderResponse.status >= 300) {
           throw new ScenarioFailure(`${orderRequest.path} answered HTTP ${orderResponse.status}`)
         }
-        const orderBody = await page.responseJson(orderRequest.id)
+        // The body kept when the response landed (the navigation to the
+        // gateway may have taken the live copy with it); the live read is the
+        // fallback for the case where nothing had to be kept.
+        let orderBody = null
+        const kept = typeof page.capturedBody === 'function' ? page.capturedBody(orderRequest.id) : null
+        if (kept) {
+          try { orderBody = JSON.parse(kept) } catch { orderBody = null }
+        }
+        if (!orderBody) orderBody = await page.responseJson(orderRequest.id)
         const order = (orderBody && (orderBody.data || orderBody)) || {}
-        const orderId = order.order_id || order.orderId || order.id || null
+        let orderId = order.order_id || order.orderId || order.id || null
         const redirectUrl = order.redirect_url || order.redirectUrl || null
-        if (!orderId) throw new ScenarioFailure('the order creation answered without an order id', 'FAIL', { body: orderBody })
         evidence.push({
-          label: 'order created',
-          value: `POST ${orderRequest.path} → HTTP ${orderResponse.status}; id=${orderId}; Idempotency-Key: present`,
+          label: 'order creation body',
+          value: orderBody
+            ? `read (${Object.keys(order).join(', ')})`
+            : `not readable — the body was released with the document; CDP said: ${JSON.stringify((page.bodyErrors || []).slice(-2))}`,
+        })
+        evidence.push({
+          label: 'order accepted',
+          value: `POST ${orderRequest.path} → HTTP ${orderResponse.status}; Idempotency-Key: present`,
         })
         // The hand-off: the app navigates the same window to the gateway URL.
         let gatewayUrl = null
@@ -863,10 +932,44 @@ export default {
         await openApp(page, '/home')
         const back = await page.waitForAriaLabel(CREDITS_AVAILABLE, 20000)
         if (!back) throw new ScenarioFailure('the app did not come back to a signed-in home after the gateway hand-off')
-        }))
+        // Which order was it? The creation body is the first witness, but the
+        // app may have navigated to the gateway before the harness could read
+        // it. The second witness is the app's OWN follow-up call for that
+        // order: the platform answering it proves the order exists there.
+        if (!orderId) {
+          const pattern = /^\/payments\/orders\/([0-9a-zA-Z-]{20,})(?:\/|$)/
+          const deadlineOrder = Date.now() + 15000
+          while (Date.now() < deadlineOrder) {
+            const followUp = page.requests
+              .filter(r => r.method === 'GET' && pattern.test(r.path || '')
+                && r.status != null && r.status < 400)
+              .pop() || null
+            if (followUp) {
+              orderId = pattern.exec(followUp.path)[1]
+              evidence.push({
+                label: 'platform order (the app\'s own follow-up)',
+                value: `${followUp.method} ${followUp.path} → HTTP ${followUp.status}`,
+              })
+              break
+            }
+            await delay(200)
+          }
+        }
+        if (!orderId) {
+          throw new ScenarioFailure(
+            'the platform order could not be identified: neither the creation body nor the app\'s follow-up call exposed it',
+            'FAIL',
+            { body: orderBody }
+          )
+        }
+        evidence.push({
+          label: 'platform order',
+          value: `${orderId}${redirectUrl ? `; redirect ${redirectUrl}` : ''}`,
+        })
+      }))
 
-      // --- step 9: the closing state --------------------------------------
-      await step(9, 'Closing — home and plan still hold the journey\'s state', async () => {
+      // --- step 9: the closing state, and the session that ends it ---------
+      await step(9, 'Closing — the state held, then the session ended', async () => {
         await openApp(page, '/home')
         const home = await (async () => {
           const deadline = Date.now() + 20000
@@ -888,6 +991,41 @@ export default {
         })
         const shot = await page.screenshot('s10-09-final')
         if (shot.path) screenshots.push(shot.path)
+
+        // The walk ends the way a person ends it: the session is closed
+        // through the UI and the browser lands back on the public landing.
+        // The sign-out control lives in Settings; the confirmation dialog is
+        // the centered one (the account view also offers "Cerrar sesión en
+        // todos los dispositivos", which is NOT what a person closes here).
+        const logout = await signOutThroughUi(page)
+        if (!logout) throw new ScenarioFailure('the signed-in settings view did not offer the sign-out control')
+        if (logout.status != null && logout.status !== 200) {
+          throw new ScenarioFailure(`POST /auth/logout answered HTTP ${logout.status}`)
+        }
+        let publicUrl = ''
+        const deadline = Date.now() + 15000
+        while (Date.now() < deadline) {
+          publicUrl = await page.currentUrl().catch(() => '')
+          let hash = ''
+          try { hash = new URL(publicUrl).hash } catch { hash = publicUrl.includes('#') ? '#' : '' }
+          if (publicUrl && !hash) break
+          await delay(150)
+        }
+        let hash = ''
+        try { hash = new URL(publicUrl).hash } catch { hash = publicUrl.includes('#') ? '#' : '' }
+        if (!publicUrl || hash) throw new ScenarioFailure(`the browser did not reach the public landing (${publicUrl || 'no URL'})`)
+        const landing = await page.waitForText(TEXT.landingRegisterHeading, 15000)
+        if (!landing) throw new ScenarioFailure('the public landing did not render after the sign-out')
+        const sessionGone = await page.evaluate(
+          `return !document.querySelector('button.credits-chip[aria-label*="créditos disponibles"]')`
+        )
+        if (!sessionGone) throw new ScenarioFailure('the credits chip was still visible after the sign-out')
+        evidence.push({
+          label: 'session closed',
+          value: `POST /auth/logout → HTTP ${logout.status == null ? 'answered' : logout.status}; public landing ${publicUrl}; credits chip gone`,
+        })
+        const shot2 = await page.screenshot('s10-09b-closed')
+        if (shot2.path) screenshots.push(shot2.path)
       })
     } finally {
       evidence.push({ label: 'final URL', value: await page.currentUrl().catch(() => 'unknown') })

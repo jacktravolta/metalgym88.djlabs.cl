@@ -244,6 +244,9 @@ export class Page {
     this.screenshots = []
     this.pageOrigin = null
     this.bodyErrors = []
+    // Bodies kept on purpose: see captureBodies().
+    this.bodyCapture = null
+    this.capturedBodies = new Map()
     // Child target sessions are kept so a cross-origin iframe can be driven in
     // its own CDP session. The metadata is internal: a target URL can carry
     // provider state and never belongs in a report.
@@ -494,6 +497,29 @@ export class Page {
       record.responseAt = Date.now()
       this.inflight.delete(params.requestId)
       this.lastActivityAt = Date.now()
+    })
+
+    on('Network.loadingFinished', async params => {
+      // The body of a response is only guaranteed to exist while the document
+      // that owns it is alive: the app leaves for the gateway the moment the
+      // order is created, and CDP forgets the body with the document. Reading
+      // it HERE — the instant the response lands — is the only reliable way
+      // to keep it.
+      const record = this.requests.find(r => r.id === params.requestId)
+      if (!record || !this.bodyCapture) return
+      if (!this.bodyCapture(record)) return
+      try {
+        const result = await this.send('Network.getResponseBody', { requestId: params.requestId })
+        this.capturedBodies.set(params.requestId, {
+          body: result.body,
+          base64: !!result.base64Encoded,
+        })
+      } catch (e) {
+        this.bodyErrors.push({
+          requestId: params.requestId,
+          error: e && e.message ? e.message : String(e),
+        })
+      }
     })
 
     on('Network.loadingFailed', params => {
@@ -818,6 +844,24 @@ export class Page {
     const body = await this.responseBody(requestId)
     if (body == null) return null
     try { return JSON.parse(body) } catch { return null }
+  }
+
+  /**
+   * Asks the harness to KEEP the body of the responses that match a
+   * predicate. Use it when the page is about to navigate away: CDP releases
+   * a body as soon as its document is replaced, so a body read on demand can
+   * come back empty even though the product answered.
+   */
+  captureBodies(predicate) {
+    this.bodyCapture = typeof predicate === 'function' ? predicate : null
+  }
+
+  /** The body kept for a request, or null when it was not kept. */
+  capturedBody(requestId) {
+    const entry = this.capturedBodies.get(requestId)
+    if (!entry) return null
+    if (!entry.base64) return entry.body
+    try { return Buffer.from(entry.body, 'base64').toString('utf8') } catch { return null }
   }
 
   /** Console entries that name a CORS refusal. */
