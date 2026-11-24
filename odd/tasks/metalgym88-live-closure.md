@@ -1,7 +1,8 @@
 # Cierre de la monetización y el pulido de metalgym88 (sesión 2026-11-22 → 2026-11-23)
 
-**Estado:** el dueño pidió parar ("llega hasta acá"). Todo lo que estaba en
-marcha queda depositado, verificado y documentado aquí para retomar sin
+**Estado:** el dueño pidió parar ("llega hasta acá") y después volvió por los pasos
+8 y 9 del recorrido. **El recorrido S10 quedó en verde (9/9) el 2026-11-24**;
+todo lo demás queda depositado, verificado y documentado aquí para retomar sin
 repetir trabajo.
 **Dominio vivo bajo prueba:** `https://metaigym88.djlabs.cl/` (el repositorio se
 llama `metalgym88`; el dominio, `metaigym88`).
@@ -27,6 +28,7 @@ llama `metalgym88`; el dominio, `metaigym88`).
 | Pagos resueltos por corazón | Código **en producción** (`af8b0ab`, dentro de `feat/mercadopago-no-rut` @ `6899034`, la rama desplegada). `PaymentProviderFactory::providerNameFor()` resuelve por corazón; el fake nunca acredita desde un webhook público (`FakePaymentProvider::verifyNotification(..., bool $trusted)`). |
 | Agujero de créditos gratis cerrado | Webhook público sin verificar no acredita (500), `/payments/fake/confirm` → 404, `/payments/orders` sin sesión → 401. |
 | PR #5 (enlaces del coach) | **CERRADO** y rama borrada (remota y local). Ver "Hallazgo que cambió el plan". |
+| Recorrido S10 (prueba full CDP) | **PASS en verde** el 2026-11-24 contra `https://metaigym88.djlabs.cl/`: los 9 pasos del recorrido humano se sostuvieron (login real por correo, coach real, recarga con handoff a Mercado Pago y cierre de sesión por la UI). Commits `21c009f`, `7f84d3a`, `6bc7b01` en `feat/full-human-journey`. Ver "El recorrido S10". |
 
 ## Qué está COMMITTEADO pero SIN integrar
 
@@ -63,7 +65,7 @@ servidor dev, sin credenciales) → **cero fallos nuevos**. El checkout vivo
 El ledger con la evidencia completa está en el repo de la API:
 `odd/tasks/metalgym88-mail-logo.md` (sección "Revisión independiente y cierre").
 
-### Front — `feat/full-human-journey` @ `dc67939` (rama local, se pushea al final)
+### Front — `feat/full-human-journey` (pusheada; el recorrido cierra en `6bc7b01`)
 
 `test(e2e): the full human journey on the live site` · 3 ficheros, +967/−1:
 
@@ -89,15 +91,20 @@ recorrido a velocidad humana ya cerrado en `odd/tasks/human-paced-full-demo.md`
 
 ## El recorrido S10: qué se verificó DE VERDAD
 
-Commits del recorrido en `feat/full-human-journey`:
-`dc67939` (el escenario) y `eee4861` (los arreglos del harness que salieron de
-las corridas). El runner ahora publica `outcome.detail` (la lista de pasos por
-escenario) en `report.md`/`report.json`: antes esa información se descartaba.
+**Corrida headed en verde el 2026-11-24** (`E2E_HEADFUL=1 node scripts/e2e/run.js
+--only=S10` contra `https://metaigym88.djlabs.cl/`): **PASS — los 9 pasos del
+recorrido humano se sostuvieron**, y el informe publica la lista de pasos con su
+veredicto (`outcome.detail`).
 
-Corrida real headed (`E2E_HEADFUL=1 node scripts/e2e/run.js --only=S10`) contra
-`https://metaigym88.djlabs.cl/`, cinco iteraciones. **Los fallos eran del
-harness, no del producto**: cada iteración encontró algo distinto y el arreglo
-se aplicó después.
+Commits del recorrido en `feat/full-human-journey`:
+`dc67939` (el escenario), `eee4861` (el runner publica `outcome.detail`),
+`21c009f` (el buzón), `7f84d3a` (la navegación) y `6bc7b01` (orden, cierre de
+sesión y pausa de re-verificación).
+
+**Los fallos que aparecieron eran del harness, no del producto**: cada iteración
+encontró algo distinto (la ventana del buzón, una navegación con el resolver
+caído, el body del 202 liberado por CDP, la ruta equivocada al confirmar la
+re-verificación) y cada arreglo se aplicó y se reverificó en vivo después.
 
 | # | Paso | Veredicto | Evidencia observada en vivo |
 |---|---|---|---|
@@ -105,54 +112,46 @@ se aplicó después.
 | 2 | Entrar por `#login` | **PASS** | «Envíame un enlace…» → `POST /auth/magic-link` 200 → correo real canjeado por `/auth/verify?token=…` → `GET /auth/me` 200 → home «Hola …» con «100 créditos disponibles». |
 | 3 | Buscar ejercicio | **PASS** | «abdominal» → 41 resultados; ficha de «Abdominal Bicicleta Con Banda Elástica» (1 media, 5 tags, «Añadir a mi plan»). |
 | 4 | Armar plan | **PASS** | Ejercicio añadido a «Nueva rutina» (toast confirmado), renombrada a «Rutina de prueba S10», listada en el plan. |
-| 5 | Coach IA | **PASS** | Grant previo `ADMIN_ADJUSTMENT +60` (100→160) vía `CreditService`; `POST /opengym/ai` 200, 1070 caracteres, en español, menciona el ejercicio; **4 tarjetas del catálogo** bajo la respuesta y clic real → `/#/library?q=Abdominal…` con el ejercicio listado. |
+| 5 | Coach IA | **PASS** | Grant previo `ADMIN_ADJUSTMENT +60` (740→800) vía `CreditService`; la pausa de re-verificación se levanta **como la persona la levanta**: el panel pidió el aviso nuevo (`POST /auth/reverify/resend` 200) y el aviso recibido por correo se confirmó contra la plataforma (`POST /auth/reverify` 200); `POST /opengym/ai` 200, 1058 caracteres, en español, menciona el ejercicio; **tarjetas del catálogo** bajo la respuesta → `/#/library?q=Abdominal…` con el ejercicio listado. |
 | 6 | Ajustes | **PASS** | Secciones: Cuenta · Tu perfil · Avisos de tu cuenta · General · Durante el entrenamiento · Apariencia · Datos · Consejo. |
 | 7 | Billetera | **PASS** | Saldo 155; ledger con `ADMIN_ADJUSTMENT` y `USAGE_DEBIT`. |
-| 8 | Recarga sin pagar | **A medias** | Packs 1000/5000/10.000 CLP visibles, Neto 840 + IVA 160 = 1000 CLP, «Pagar en CLP con Mercado Pago», USD deshabilitado («requiere credenciales de PayPal en modo live»). La orden se creó en vivo: `POST /payments/orders/checkout` con Idempotency-Key → **HTTP 202 (PENDING)**. Sin verificar: el `order_id` del body y la navegación a la pasarela. |
-| 9 | Cierre | **Sin verificar** | Nunca llegó a ejecutarse limpio. |
+| 8 | Recarga sin pagar | **PASS** | Packs 1000/5000/10.000 CLP visibles; quote CLP `available=true`, `providers=["mercadopago"]`; límites publicados `min=350 max=10000`. La orden se creó en vivo: `POST /payments/orders/checkout` con Idempotency-Key → **HTTP 202 (PENDING)**; el navegador salió a la pasarela (`https://www.mercadopago.cl/checkout/v1/payment/redirect/?order_id=…`, documento 200). El `order_id` de la plataforma se identificó por la llamada de seguimiento de la propia app (`GET /payments/orders/{uuid}/voucher` → 200), porque CDP libera el body del 202 al navegar. **La pierna de pago no se intentó**: pagar necesita tarjeta humana. |
+| 9 | Cierre | **PASS** | El estado se sostiene (home «Hola …», chip 800 créditos, el plan sigue listando «Rutina de prueba S10») y la sesión se cierra **por la UI**: Ajustes → «Cerrar sesión» → confirmación → `POST /auth/logout` **HTTP 200** → landing pública `https://metaigym88.djlabs.cl/` sin hash y sin el chip de créditos. |
 
-**Cómo leer el informe de la última corrida (importante):** el reporte de la
-corrida final dice **"0 PASS · 1 FAIL · 0 BLOCKED" a nivel de escenario**, con el
-motivo `kind.toLowerCase is not a function`: el crash ocurrió justo al construir
-el detalle del fallo del paso 8, así que el informe **no** llegó a publicar el
-lista de pasos. Los veredictos PASS de los pasos 1–7 salen de la evidencia de
-las corridas anteriores (capturas `s10-01`…`s10-07`) y de lo observado en vivo,
-no de ese informe. `eee4861` es justamente el commit que hace que el runner
-publique `outcome.detail` (la lista de pasos) — **falta una corrida en vivo
-para que ese informe exista**.
+**Cómo leer el informe de la corrida en verde:** el reporte dice
+**"PASS — all 9 steps of the human journey held on https://metaigym88.djlabs.cl"**
+con `1 PASS · 0 FAIL · 0 BLOCKED`, y publica los nueve pasos con su veredicto
+(`outcome.detail`). Las capturas de esa corrida viven en
+`artifacts/e2e/screenshots/` y el informe en `artifacts/e2e/report.{md,json}`.
 
-Verificación del código: `npm test` → **41 archivos / 577 tests passed**
-(re-verificado tras `eee4861`); `npm run build` → verde (solo el warning
-preexistente de chunks > 1500 kB).
+Verificación del código (re-verificada tras los tres commits del cierre):
+`npm test` → **41 archivos / 577 tests passed**; `npm run build` → verde (solo el
+warning preexistente de chunks > 1500 kB).
 
 **Lo que NO está verificado** (sin PASS inventado):
 
-- **No hay corrida completa en verde**: los arreglos del harness (aceptar el 202
-  del checkout, el constructor `ScenarioFailure`, la espera del editor de rutina)
-  están commiteados en `eee4861` pero **no se re-ejecutaron en vivo**.
-- No se corrió la suite completa headed S1–S10 (solo `--only=S10`).
 - **No se pagó** (ni se intentó): la pierna de pago queda como «necesita tarjeta
-  humana».
-- Dato observado, no defecto: el coach cobró **5 créditos** por la pregunta
-  (160→155), no los 8 del brief; lo que la plataforma sirve manda.
+  humana». Lo verificado es el contrato hasta el handoff (quote → orden 202 →
+  pasarela → orden viva en la plataforma).
+- No se corrió la suite completa headed S1–S10 (solo `--only=S10`).
+- Dato observado, no defecto: el coach cobra **5 créditos** por la pregunta, no
+  los 8 del brief; lo que la plataforma sirve manda.
+- La evidencia (capturas e informes) **no está versionada**: `artifacts/` está en
+  el `.gitignore`, así que vive solo en el worktree
+  `/home/test/test/metalgym88.djlabs.cl-worktrees/full-journey/artifacts/e2e/`.
+  Si se quiere conservar, hay que copiarla fuera antes de borrar ese worktree.
 
-**Defectos de producto confirmados: ninguno.** La sospecha inicial (raíl CLP
-muerta por `expectedProvider='mercadopago'` frente a Flow) queda **retirada**:
-el «no disponible» del run 1 era la quote aún cargando.
+**Defectos de producto confirmados: ninguno.** Dos sospechas quedan retiradas: el
+«no disponible» de la raíl CLP era la quote aún cargando, y el
+`ERR_NAME_NOT_RESOLVED` del paso 9 fue una caída del resolver de la caja, no del
+sitio. Lo que sí apareció —comportamiento de plataforma, no defecto— es que el
+aviso de re-verificación se envía **una sola vez** (la primera vez que se cruza
+el umbral): el panel resuelve el bloqueo con «Reenviar el enlace»
+(`POST /auth/reverify/resend`), que es justo el camino que el recorrido usa.
 
-Capturas: `artifacts/e2e/screenshots/s10-01-landing.png` … `s10-08-topup-options.png`
-(+ `s10-stepN-fail/blocked.png` de las iteraciones). Informes:
-`artifacts/e2e/report.md` y `artifacts/e2e/report.json`.
-**La evidencia no está versionada**: `artifacts/` está en el `.gitignore`, así
-que las capturas y los informes viven solo en el worktree
-`/home/test/test/metalgym88.djlabs.cl-worktrees/full-journey/artifacts/e2e/`.
-Si se quieren conservar, hay que copiarlas fuera (o levantarse el ignore) antes
-de borrar ese worktree.
-
-**Siguiente paso único**: `E2E_HEADFUL=1 node scripts/e2e/run.js --only=S10`
-con `eee4861` para cerrar los pasos 8 y 9. Si el body del 202 no expone un
-`order_id` legible por CDP, basta con registrar el 202 + Idempotency-Key como
-evidencia del contrato y la navegación por `currentUrl()`.
+**Siguiente paso único**: publicar la rama `feat/full-human-journey` con los tres
+commits del cierre (`21c009f`, `7f84d3a`, `6bc7b01`) y el doc de relevo. Nada
+del recorrido queda pendiente de ejecución.
 
 ## Hallazgo que cambió el plan: PR #5 era OBSOLETO
 
