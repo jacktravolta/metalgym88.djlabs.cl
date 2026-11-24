@@ -7,6 +7,7 @@ import { extractTokenUrls } from '../lib/mailbox.js'
 import { blocked, fail } from '../runner.js'
 import { CorsBlocked, StepTimeout } from '../page.js'
 import { BASE_URL, HEART, TEXT } from '../config.js'
+import { setTimeout as delay } from 'node:timers/promises'
 
 // The platform answers in seconds, not in milliseconds (it sends a mail, it
 // talks to a payment provider). The window is generous but bounded: a slow
@@ -57,15 +58,37 @@ export async function platformResponse(page, request, options = {}) {
 }
 
 /** Opens the public landing (a fresh boot, hash removed). */
+/**
+ * Opens a route, retrying once.
+ *
+ * A navigation can fail for reasons that have nothing to do with the
+ * product: the box's resolver dropped a lookup, the connection was cut, the
+ * browser was still leaving the previous origin. One retry is the honest way
+ * to tell the two apart — the second attempt says whether the product is
+ * really broken. Two failures in a row are still a failure.
+ */
+async function openRoute(page, url, { timeoutMs = 30000, attempts = 2 } = {}) {
+  let lastError = null
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      await page.goto(url, { timeoutMs })
+      await page.reload({ timeoutMs })
+      return
+    } catch (e) {
+      lastError = e
+      await delay(500)
+    }
+  }
+  throw lastError
+}
+
 export async function openLanding(page) {
-  await page.goto(`${BASE_URL}/`, { timeoutMs: 30000 })
-  await page.reload({ timeoutMs: 30000 })
+  await openRoute(page, `${BASE_URL}/`)
 }
 
 /** Opens a route of the app itself (a fresh boot with the hash in place). */
 export async function openApp(page, route = '/home') {
-  await page.goto(`${BASE_URL}/#${route}`, { timeoutMs: 30000 })
-  await page.reload({ timeoutMs: 30000 })
+  await openRoute(page, `${BASE_URL}/#${route}`)
 }
 
 /**
@@ -227,7 +250,20 @@ export async function redeemLatestLink(page, context, { timeoutMs = 120000, requ
   const token = new URL(urls[0]).searchParams.get('token')
   if (!token) throw new Error('the verification URL carried no token')
   const verifyUrl = `${BASE_URL}/auth/verify?token=${encodeURIComponent(token)}&heart=${encodeURIComponent(HEART)}`
-  await page.goto(verifyUrl, { timeoutMs: 30000 })
+  // The verification is a plain navigation: it gets the same retry as the
+  // app's own routes, because a dropped lookup is not a product verdict.
+  let verified = null
+  let verifyError = null
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      verified = await page.goto(verifyUrl, { timeoutMs: 30000 })
+      break
+    } catch (e) {
+      verifyError = e
+      await delay(500)
+    }
+  }
+  if (!verified) throw verifyError || new Error('the verification link could not be opened')
   const me = await awaitResponse(
     page,
     r => r.method === 'GET' && r.path === '/auth/me' && r.status === 200,
